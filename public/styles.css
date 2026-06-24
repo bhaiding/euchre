@@ -40,6 +40,17 @@ button, a { font: inherit; }
 .kitty-back { position: absolute; left: 1vmin; top: 1vmin; transform: rotate(-5deg); }
 .up-card { position: absolute; left: 1.5vmin; top: .2vmin; transform: rotate(8deg); box-shadow: 0 16px 35px rgba(0,0,0,.35); }
 .trump-label { position: absolute; top: 23vmin; white-space: nowrap; font-weight: 800; font-size: 2vmin; padding: .8vmin 1.4vmin; border-radius: 99px; background: rgba(0,0,0,.32); }
+.trump-emblem { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 27vmin; height: 27vmin; border-radius: 50%; background: radial-gradient(circle at 36% 30%, #ffffff, #f1ede1 72%); box-shadow: 0 16px 44px rgba(0,0,0,.45), inset 0 0 0 .9vmin rgba(0,0,0,.06); }
+.trump-emblem span { font-size: 15vmin; line-height: .82; font-weight: 900; }
+.trump-emblem small { font-size: 2.2vmin; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: #444; margin-top: .8vmin; }
+.trump-emblem.red-suit span { color: #d3182e; }
+.trump-emblem.black-suit span { color: #141414; }
+
+.dealer-puck { position: absolute; z-index: 16; width: 7.6vmin; height: 7.6vmin; border-radius: 50%; display: grid; place-items: center; font-weight: 950; font-size: 3.6vmin; color: #1c1c1c; background: radial-gradient(circle at 35% 30%, #ffffff, #d6d6d6 72%); border: .55vmin solid #c79a1e; box-shadow: 0 8px 22px rgba(0,0,0,.42), inset 0 0 0 .5vmin rgba(255,255,255,.65); }
+.dealer-at-0 { left: 60%; bottom: 5vmin; }
+.dealer-at-2 { left: 40%; top: 5vmin; }
+.dealer-at-1 { left: 5vmin; top: 40%; }
+.dealer-at-3 { right: 5vmin; top: 60%; }
 .alone-pill { position: absolute; top: 27vmin; white-space: nowrap; font-weight: 800; color: #ffe9a8; font-size: 1.7vmin; padding: .7vmin 1.2vmin; border-radius: 99px; background: rgba(0,0,0,.32); border: 1px solid rgba(255,233,168,.4); }
 
 .seat-zone { position: absolute; z-index: 12; width: 25vmin; min-height: 8vmin; padding: 1.1vmin 1.5vmin; border-radius: 2.2vmin; background: rgba(0,0,0,.20); border: 2px solid rgba(255,255,255,.13); text-align: center; display: grid; place-items: center; gap: .5vmin; }
@@ -69,14 +80,23 @@ button, a { font: inherit; }
 .qr-caption { margin-top: .4vmin; font-size: 1.08vmin; font-weight: 900; text-transform: uppercase; }
 .connected-dot { position: absolute; right: -.55vmin; top: -.7vmin; padding: .45vmin .8vmin; border-radius: 99px; background: #22c55e; color: #052e16; font-size: 1vmin; font-weight: 950; }
 
-.turn-arrow { position: absolute; left: 50%; top: 50%; width: .9vmin; height: 30vmin; transform-origin: 50% 0%; transform: translate(-50%, -1vmin) rotate(var(--turn-angle)); z-index: 11; background: linear-gradient(to top, rgba(255,255,255,0), rgba(255,255,255,.75)); border-radius: 99px; pointer-events: none; }
-.turn-arrow::before { content: ''; position: absolute; top: -1.4vmin; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 1.5vmin solid transparent; border-right: 1.5vmin solid transparent; border-bottom: 2.4vmin solid rgba(255,255,255,.92); filter: drop-shadow(0 0 18px rgba(255,255,255,.45)); }
+/* Arrow rooted at table centre, pointing outward toward the active player */
+.turn-arrow { position: absolute; left: 50%; top: 50%; width: 1vmin; height: 31vmin; transform-origin: 50% 100%; transform: translate(-50%, -100%) rotate(var(--turn-angle)); z-index: 11; background: linear-gradient(to top, rgba(255,255,255,0), rgba(255,255,255,.78)); border-radius: 99px; pointer-events: none; }
+.turn-arrow::before { content: ''; position: absolute; top: -1.4vmin; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 1.6vmin solid transparent; border-right: 1.6vmin solid transparent; border-bottom: 2.6vmin solid rgba(255,255,255,.92); filter: drop-shadow(0 0 18px rgba(255,255,255,.45)); }
 .played-layer { position: absolute; inset: 0; z-index: 17; pointer-events: none; }
+/* Won-trick piles shown face-down in front of each player */
+.won-layer { position: absolute; inset: 0; z-index: 13; pointer-events: none; }
+.won-pile { position: absolute; width: 9vmin; height: 11vmin; }
+.won-pile .tp-card { position: absolute; width: 7vmin; height: 9.8vmin; left: calc(var(--i) * 1.1vmin); top: calc(var(--i) * -0.35vmin); border-radius: 1vmin; }
+.won-pile-0 { left: 39%; bottom: 5.5vmin; }
+.won-pile-2 { left: 61%; top: 5.5vmin; }
+.won-pile-1 { left: 5.5vmin; top: 61%; }
+.won-pile-3 { right: 5.5vmin; top: 39%; }
 .played-card { position: absolute; filter: drop-shadow(0 16px 22px rgba(0,0,0,.4)); }
-.played-seat-0 { left: 50%; top: 63%; transform: translate(-50%, -50%); }
-.played-seat-2 { left: 50%; top: 36%; transform: translate(-50%, -50%) rotate(180deg); }
-.played-seat-1 { left: 37%; top: 50%; transform: translate(-50%, -50%) rotate(90deg); }
-.played-seat-3 { left: 63%; top: 50%; transform: translate(-50%, -50%) rotate(-90deg); }
+.played-seat-0 { left: 50%; top: 71%; transform: translate(-50%, -50%); }
+.played-seat-2 { left: 50%; top: 29%; transform: translate(-50%, -50%) rotate(180deg); }
+.played-seat-1 { left: 29%; top: 50%; transform: translate(-50%, -50%) rotate(90deg); }
+.played-seat-3 { left: 71%; top: 50%; transform: translate(-50%, -50%) rotate(-90deg); }
 /* Newly played cards fly in from the player's seat edge so it reads as a continuation of their swipe */
 .played-card.fly-in { animation: 380ms cubic-bezier(.2,.72,.24,1) both; }
 .played-card.fly-in.played-seat-0 { animation-name: playFly0; }

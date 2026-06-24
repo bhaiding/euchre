@@ -17,7 +17,6 @@ let mySeat = seatParam == null ? null : Number(seatParam);
 let tableState = null;
 let handState = null;
 let selectedIndex = 0;
-let fanLayout = (() => { try { return localStorage.getItem('fanLayout') || 'fan'; } catch (e) { return 'fan'; } })();
 let myName = (() => { try { return localStorage.getItem('euchreName') || ''; } catch (e) { return ''; } })();
 let tablePlaySeen = new Set(); // played cards already on the table, so only new ones fly in
 let lastDealSeq = null;
@@ -130,6 +129,15 @@ function renderTable() {
   }).join('');
   tablePlaySeen = new Set(state.trickCards.map(p => `${p.seat}:${p.card.id}`));
   const showQr = state.phase === 'lobby'; // only before the hand starts; free up room once playing
+  const makerName = state.maker != null ? ((state.seats.find(s => s.seat === state.maker) || {}).name || seatLabels[state.maker]) : '';
+  const dealerPuck = state.dealer != null ? `<div class="dealer-puck dealer-at-${state.dealer}">D</div>` : '';
+  const trumpIsRed = state.trump === 'H' || state.trump === 'D';
+  const wonPiles = [0, 1, 2, 3].map(seat => {
+    const n = state.trickPiles?.[seat] || 0;
+    if (!n) return '';
+    const cards = Array.from({ length: Math.min(n, 5) }, (_, i) => `<div class="tp-card card-back" style="--i:${i}"></div>`).join('');
+    return `<div class="won-pile won-pile-${seat}">${cards}</div>`;
+  }).join('');
   const qrSeats = [2, 3, 0, 1].map(seat => qrForSeat(state, seat)).join('');
   const seatZones = [0, 1, 2, 3].map(seat => seatZone(state, seat)).join('');
   const controls = tableControls(state);
@@ -143,15 +151,18 @@ function renderTable() {
       </div>
       <div class="room-badge">Room ${state.room}</div>
       ${turnArrow}
+      ${dealerPuck}
       <div class="center-area">
-        <div class="kitty-stack">
-          <div class="card-back table-card kitty-back"></div>
-          ${state.phase === 'ordering1' || state.phase === 'ordering2' || state.phase === 'discard' ? upCardHtml : ''}
-        </div>
-        <div class="trump-label">${state.trump ? `Trump: ${suitSymbols[state.trump]} ${state.trumpName}` : 'Trump not chosen'}</div>
-        ${state.alone && state.maker != null ? `<div class="alone-pill">${seatLabels[state.maker]} is going alone</div>` : ''}
+        ${state.trump
+          ? `<div class="trump-emblem ${trumpIsRed ? 'red-suit' : 'black-suit'}"><span>${suitSymbols[state.trump]}</span><small>${escapeHtml(state.trumpName || '')} is trump</small></div>`
+          : `<div class="kitty-stack">
+              <div class="card-back table-card kitty-back"></div>
+              ${state.phase === 'ordering1' || state.phase === 'ordering2' ? upCardHtml : ''}
+            </div>`}
+        ${state.alone && state.maker != null ? `<div class="alone-pill">${escapeHtml(makerName)} is going alone</div>` : ''}
       </div>
       <div class="played-layer">${played}</div>
+      <div class="won-layer">${wonPiles}</div>
       ${seatZones}
       ${showQr ? `<div class="qr-layer">${qrSeats}</div>` : ''}
       ${controls}
@@ -290,8 +301,7 @@ function renderHand() {
       <div class="phone-deal-layer"></div>
       ${panel}
       ${panel ? '' : `<div class="phone-message">${escapeHtml(state.message || '')}</div>`}
-      ${state.canAct && (state.actionType === 'ordering1' || state.actionType === 'ordering2') ? '' : fanToggle()}
-      <div id="fan" class="card-fan ${fanLayout === 'spread' ? 'spread' : ''}" style="--count:${cards.length}">
+      <div id="fan" class="card-fan spread" style="--count:${cards.length}">
         ${cards.map((card, index) => cardInFan(card, index, cards.length, state)).join('')}
       </div>
       <div id="toast" class="toast"></div>
@@ -307,8 +317,7 @@ function renderPreviewHand() {
   app.innerHTML = `
     <section class="phone-screen">
       <div class="preview-hint">Preview mode — swipe sideways through the fan, swipe up to throw a card.</div>
-      ${fanToggle()}
-      <div id="fan" class="card-fan preview-fan ${fanLayout === 'spread' ? 'spread' : ''}" style="--count:${cards.length}">
+      <div id="fan" class="card-fan preview-fan spread" style="--count:${cards.length}">
         ${cards.map((card, index) => cardInFan(card, index, cards.length, { legalCardIds: cards.map(c => c.id), canAct: true, actionType: 'play' })).join('')}
       </div>
       <div id="toast" class="toast"></div>
@@ -358,40 +367,16 @@ function actionPanel(state) {
 // highest, scaled up, and with extra gap to its neighbours so you can read it
 // and peek at the cards on either side. Stacking order is fixed by physical
 // index (set separately) so the fan never re-stacks while you scroll.
-function fanToggle() {
-  return `
-    <div class="fan-toggle" role="group" aria-label="Card layout">
-      <button data-fan-mode="fan" class="${fanLayout === 'fan' ? 'on' : ''}">Fan</button>
-      <button data-fan-mode="spread" class="${fanLayout === 'spread' ? 'on' : ''}">Spread</button>
-    </div>`;
-}
-
+// Every card equally separated, full size, so you can see the whole hand at once.
 function fanGeometry(index, centerFloat) {
   const offset = index - centerFloat;
-  const w = window.innerWidth || 390;
-  const vw = w / 100;
-  const prox = Math.exp(-(offset * offset) / 1.2); // 1 at the apex, fades outward
-
-  // Spread mode: every card equally separated so you can see them all at once.
-  if (fanLayout === 'spread') {
-    const angle = clamp(offset * 8, -38, 38);
-    const shift = offset * 8 * vw; // even, very tight spacing — full-size cards close together
-    const arc = Math.exp(-(offset * offset) / 7); // gentle, broad arc
-    const raise = -16 * arc + Math.abs(offset) * 2;
-    const scale = 0.96 + 0.06 * prox; // full size, slight lift on the focused card
-    return { angle, shift, raise, scale };
-  }
-
-  const angle = clamp(offset * 9, -40, 40);
-  // Non-uniform spacing: a large gap opens on each side of the centred card (the
-  // tanh term jumps within one card of centre and then saturates), while the
-  // outer cards stay compressed together — only the small linear term separates
-  // them. So the middle card reads clearly and the rest bunch up beside it.
-  const a = 5 * vw;   // tight spacing between the outer, compressed cards
-  const G = 42 * vw;  // big gap carved out around the apex
-  const shift = clamp(a * offset + G * Math.tanh(offset / 0.7), -w * 0.52, w * 0.52);
-  const raise = -62 * prox + Math.abs(offset) * 8; // apex highest, others lower
-  const scale = 0.84 + 0.26 * prox; // apex noticeably larger than its neighbours
+  const vw = (window.innerWidth || 390) / 100;
+  const prox = Math.exp(-(offset * offset) / 1.2);
+  const angle = clamp(offset * 8, -38, 38);
+  const shift = offset * 8 * vw; // even, tight spacing — full-size cards close together
+  const arc = Math.exp(-(offset * offset) / 7); // gentle, broad arc
+  const raise = -16 * arc + Math.abs(offset) * 2;
+  const scale = 0.96 + 0.06 * prox; // slight lift on the focused card
   return { angle, shift, raise, scale };
 }
 
@@ -493,15 +478,6 @@ function attachFanGestures(cards, isPreview) {
   };
   fan.addEventListener('pointerup', finish);
   fan.addEventListener('pointercancel', finish);
-
-  document.querySelectorAll('[data-fan-mode]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (fanLayout === btn.dataset.fanMode) return;
-      fanLayout = btn.dataset.fanMode;
-      try { localStorage.setItem('fanLayout', fanLayout); } catch (e) {}
-      if (isPreview) renderPreviewHand(); else renderHand();
-    });
-  });
 }
 
 function attachActionButtons() {
