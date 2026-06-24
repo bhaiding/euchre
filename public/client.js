@@ -17,6 +17,7 @@ let mySeat = seatParam == null ? null : Number(seatParam);
 let tableState = null;
 let handState = null;
 let selectedIndex = 0;
+let fanLayout = (() => { try { return localStorage.getItem('fanLayout') || 'fan'; } catch (e) { return 'fan'; } })();
 let lastDealSeq = null;
 let previewHand = [];
 let previewTeam = 'blue';
@@ -255,7 +256,8 @@ function renderHand() {
     <section class="phone-screen">
       <div class="phone-deal-layer"></div>
       ${actionPanel(state)}
-      <div id="fan" class="card-fan" style="--count:${cards.length}">
+      ${fanToggle()}
+      <div id="fan" class="card-fan ${fanLayout === 'spread' ? 'spread' : ''}" style="--count:${cards.length}">
         ${cards.map((card, index) => cardInFan(card, index, cards.length, state)).join('')}
       </div>
       <div id="toast" class="toast"></div>
@@ -271,7 +273,8 @@ function renderPreviewHand() {
   app.innerHTML = `
     <section class="phone-screen">
       <div class="preview-hint">Preview mode — swipe sideways through the fan, swipe up to throw a card.</div>
-      <div id="fan" class="card-fan preview-fan" style="--count:${cards.length}">
+      ${fanToggle()}
+      <div id="fan" class="card-fan preview-fan ${fanLayout === 'spread' ? 'spread' : ''}" style="--count:${cards.length}">
         ${cards.map((card, index) => cardInFan(card, index, cards.length, { legalCardIds: cards.map(c => c.id), canAct: true, actionType: 'play' })).join('')}
       </div>
       <div id="toast" class="toast"></div>
@@ -321,11 +324,30 @@ function actionPanel(state) {
 // highest, scaled up, and with extra gap to its neighbours so you can read it
 // and peek at the cards on either side. Stacking order is fixed by physical
 // index (set separately) so the fan never re-stacks while you scroll.
+function fanToggle() {
+  return `
+    <div class="fan-toggle" role="group" aria-label="Card layout">
+      <button data-fan-mode="fan" class="${fanLayout === 'fan' ? 'on' : ''}">Fan</button>
+      <button data-fan-mode="spread" class="${fanLayout === 'spread' ? 'on' : ''}">Spread</button>
+    </div>`;
+}
+
 function fanGeometry(index, centerFloat) {
   const offset = index - centerFloat;
   const w = window.innerWidth || 390;
   const vw = w / 100;
   const prox = Math.exp(-(offset * offset) / 1.2); // 1 at the apex, fades outward
+
+  // Spread mode: every card equally separated so you can see them all at once.
+  if (fanLayout === 'spread') {
+    const angle = clamp(offset * 7, -34, 34);
+    const shift = offset * 17 * vw; // uniform spacing
+    const arc = Math.exp(-(offset * offset) / 7); // gentle, broad arc
+    const raise = -16 * arc + Math.abs(offset) * 2;
+    const scale = 0.9 + 0.07 * prox; // small lift on the focused card
+    return { angle, shift, raise, scale };
+  }
+
   const angle = clamp(offset * 9, -40, 40);
   // Non-uniform spacing: a large gap opens on each side of the centred card (the
   // tanh term jumps within one card of centre and then saturates), while the
@@ -437,6 +459,15 @@ function attachFanGestures(cards, isPreview) {
   };
   fan.addEventListener('pointerup', finish);
   fan.addEventListener('pointercancel', finish);
+
+  document.querySelectorAll('[data-fan-mode]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (fanLayout === btn.dataset.fanMode) return;
+      fanLayout = btn.dataset.fanMode;
+      try { localStorage.setItem('fanLayout', fanLayout); } catch (e) {}
+      if (isPreview) renderPreviewHand(); else renderHand();
+    });
+  });
 }
 
 function attachActionButtons() {
