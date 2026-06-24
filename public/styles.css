@@ -124,7 +124,7 @@ button, a { font: inherit; }
 .fan-slot.flinging { transition: transform 240ms cubic-bezier(.4,.0,.2,1), opacity 240ms ease; opacity: 0; }
 .fan-slot.selected { filter: drop-shadow(0 -10px 24px rgba(255,255,255,.22)); }
 .fan-slot.illegal-card { opacity: .42; filter: grayscale(.6); }
-.phone-card { width: min(48vw, calc(56vh * .7)); height: min(56vh, calc(48vw * 1.42)); border-radius: min(3.6vw, 26px); font-size: clamp(20px, 5.4vw, 40px); }
+.phone-card { width: min(88vw, calc(92vh * .714)); height: min(92vh, calc(88vw * 1.4)); border-radius: min(5.3vw, 38px); font-size: clamp(28px, 8.7vw, 58px); }
 .phone-card .corner { font-size: .92em; }
 .phone-card .card-center span:first-child { font-size: 2.55em; }
 .phone-card .card-center span:last-child { font-size: 3.05em; }

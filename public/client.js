@@ -326,11 +326,15 @@ function fanGeometry(index, centerFloat) {
   const w = window.innerWidth || 390;
   const vw = w / 100;
   const prox = Math.exp(-(offset * offset) / 1.2); // 1 at the apex, fades outward
-  const angle = clamp(offset * 15, -66, 66); // wide arc, like a real held fan
-  // wide horizontal spread so each card shows most of its face; extra bump opens the apex gap
-  const bump = Math.sign(offset) * 4 * vw * Math.exp(-(offset * offset) / 1.6);
-  const shift = clamp(offset * 30 * vw + bump, -w * 0.5, w * 0.5);
-  const raise = -62 * prox + Math.abs(offset) * 8; // apex highest, outer cards droop into the arc
+  const angle = clamp(offset * 9, -40, 40);
+  // Non-uniform spacing: a large gap opens on each side of the centred card (the
+  // tanh term jumps within one card of centre and then saturates), while the
+  // outer cards stay compressed together — only the small linear term separates
+  // them. So the middle card reads clearly and the rest bunch up beside it.
+  const a = 5 * vw;   // tight spacing between the outer, compressed cards
+  const G = 42 * vw;  // big gap carved out around the apex
+  const shift = clamp(a * offset + G * Math.tanh(offset / 0.7), -w * 0.52, w * 0.52);
+  const raise = -62 * prox + Math.abs(offset) * 8; // apex highest, others lower
   const scale = 0.84 + 0.26 * prox; // apex noticeably larger than its neighbours
   return { angle, shift, raise, scale };
 }
