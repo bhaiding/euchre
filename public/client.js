@@ -257,7 +257,7 @@ function renderHand() {
     <section class="phone-screen">
       <div class="phone-deal-layer"></div>
       ${actionPanel(state)}
-      ${fanToggle()}
+      ${state.canAct && (state.actionType === 'ordering1' || state.actionType === 'ordering2') ? '' : fanToggle()}
       <div id="fan" class="card-fan ${fanLayout === 'spread' ? 'spread' : ''}" style="--count:${cards.length}">
         ${cards.map((card, index) => cardInFan(card, index, cards.length, state)).join('')}
       </div>

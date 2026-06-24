@@ -133,11 +133,11 @@ button, a { font: inherit; }
 .phone-card .corner { font-size: .92em; }
 .phone-card .card-center span:first-child { font-size: 2.55em; }
 .phone-card .card-center span:last-child { font-size: 3.05em; }
-.action-panel { position: absolute; top: max(10px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 500; width: min(94vw, 620px); padding: 10px; border-radius: 22px; background: rgba(0,0,0,.36); border: 1px solid rgba(255,255,255,.20); box-shadow: 0 10px 34px rgba(0,0,0,.26); backdrop-filter: blur(16px); text-align: center; }
+.action-panel { position: absolute; top: max(10px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 700; width: min(94vw, 620px); padding: 10px; border-radius: 22px; background: rgba(0,0,0,.36); border: 1px solid rgba(255,255,255,.20); box-shadow: 0 10px 34px rgba(0,0,0,.26); backdrop-filter: blur(16px); text-align: center; }
 .action-panel.quiet { width: auto; max-width: 90vw; padding: 12px 16px; color: rgba(255,255,255,.86); }
 .action-panel.swipe-panel { width: auto; max-width: 90vw; padding: 10px 15px; font-weight: 850; }
 .action-text { font-size: 14px; line-height: 1.25; font-weight: 800; margin-bottom: 8px; }
-.action-buttons { display: flex; justify-content: center; gap: 8px; }
+.action-buttons { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; }
 .action-buttons.wrap { flex-wrap: wrap; }
 .action-buttons button { appearance: none; border: 0; border-radius: 999px; padding: 10px 12px; min-height: 42px; color: #07111f; background: #fff; font-weight: 950; box-shadow: 0 6px 16px rgba(0,0,0,.22); }
 .suit-panel .action-buttons button { min-width: 88px; }
