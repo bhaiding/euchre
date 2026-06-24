@@ -15,7 +15,7 @@ button, a { font: inherit; }
 
 /* TABLE VIEW */
 .table-body { background: #06120c; }
-.table-screen { position: relative; width: 100vw; height: 100vh; min-height: 100dvh; overflow: hidden; background: #04120b; }
+.table-screen { position: relative; width: 100vw; height: 100vh; height: 100dvh; overflow: hidden; background: #04120b; }
 .felt { position: absolute; inset: 3.2vmin; border-radius: 8vmin; background:
   radial-gradient(ellipse at center, rgba(255,255,255,.12), transparent 45%),
   radial-gradient(ellipse at center, #12633e, #064024 65%, #02180d);
@@ -33,6 +33,8 @@ button, a { font: inherit; }
 .center-area { position: absolute; left: 50%; top: 51%; transform: translate(-50%, -50%); width: 26vmin; height: 30vmin; display: grid; place-items: center; z-index: 10; }
 .kitty-stack { position: relative; width: 13vmin; height: 18vmin; }
 .table-card { width: 11.2vmin; height: 15.7vmin; border-radius: 1.2vmin; }
+.table-screen.in-play .table-card { width: 15.5vmin; height: 21.7vmin; border-radius: 1.5vmin; }
+.table-screen.in-play .kitty-stack { width: 17vmin; height: 24vmin; }
 .kitty-back { position: absolute; left: 1vmin; top: 1vmin; transform: rotate(-5deg); }
 .up-card { position: absolute; left: 1.5vmin; top: .2vmin; transform: rotate(8deg); box-shadow: 0 16px 35px rgba(0,0,0,.35); }
 .trump-label { position: absolute; top: 23vmin; white-space: nowrap; font-weight: 800; font-size: 2vmin; padding: .8vmin 1.4vmin; border-radius: 99px; background: rgba(0,0,0,.32); }
@@ -58,7 +60,7 @@ button, a { font: inherit; }
 .seat-qr img { display: block; width: 100%; border-radius: .8vmin; }
 .blue-border { border: .65vmin solid #2878ff; }
 .red-border { border: .65vmin solid #e33c4b; }
-.seat-qr-0 { left: 50%; bottom: .9vmin; transform: translateX(-50%); }
+.seat-qr-0 { left: 50%; bottom: max(1.6vmin, env(safe-area-inset-bottom)); transform: translateX(-50%); }
 .seat-qr-2 { left: 50%; top: .9vmin; transform: translateX(-50%) rotate(180deg); }
 .seat-qr-1 { left: .9vmin; top: 50%; transform: translateY(-50%) rotate(90deg); }
 .seat-qr-3 { right: .9vmin; top: 50%; transform: translateY(-50%) rotate(-90deg); }

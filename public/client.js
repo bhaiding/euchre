@@ -124,12 +124,13 @@ function renderTable() {
   const played = state.trickCards.map(play => `
     <div class="played-card played-seat-${play.seat}">${cardHtml(play.card, 'table-card')}</div>
   `).join('');
+  const showQr = state.phase === 'lobby'; // only before the hand starts; free up room once playing
   const qrSeats = [2, 3, 0, 1].map(seat => qrForSeat(state, seat)).join('');
   const seatZones = [0, 1, 2, 3].map(seat => seatZone(state, seat)).join('');
   const controls = tableControls(state);
 
   app.innerHTML = `
-    <section id="table" class="table-screen phase-${state.phase}">
+    <section id="table" class="table-screen phase-${state.phase} ${showQr ? '' : 'in-play'}">
       <div class="felt"></div>
       <div class="scorecard">
         <div class="score blue-score"><span>Blue</span><strong>${state.score.blue}</strong></div>
@@ -148,7 +149,7 @@ function renderTable() {
       </div>
       <div class="played-layer">${played}</div>
       ${seatZones}
-      <div class="qr-layer">${qrSeats}</div>
+      ${showQr ? `<div class="qr-layer">${qrSeats}</div>` : ''}
       ${controls}
       <div class="table-link">${escapeHtml(tableUrl)}</div>
       <div id="dealLayer" class="deal-layer"></div>
