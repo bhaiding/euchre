@@ -323,13 +323,15 @@ function actionPanel(state) {
 // index (set separately) so the fan never re-stacks while you scroll.
 function fanGeometry(index, centerFloat) {
   const offset = index - centerFloat;
-  const prox = Math.exp(-(offset * offset) / 1.1); // 1 at the apex, fades sharply outward
-  const angle = clamp(offset * 8, -42, 42);
-  // push the immediate neighbours well away from the apex to open a readable gap
-  const bump = Math.sign(offset) * 28 * Math.exp(-(offset * offset) / 1.6);
-  const shift = clamp(offset * 38 + bump, -200, 200);
-  const raise = -58 * prox; // apex lifts clearly above the right-neighbour overlap
-  const scale = 0.86 + 0.26 * prox; // apex noticeably larger than its neighbours
+  const w = window.innerWidth || 390;
+  const vw = w / 100;
+  const prox = Math.exp(-(offset * offset) / 1.2); // 1 at the apex, fades outward
+  const angle = clamp(offset * 15, -66, 66); // wide arc, like a real held fan
+  // wide horizontal spread so each card shows most of its face; extra bump opens the apex gap
+  const bump = Math.sign(offset) * 4 * vw * Math.exp(-(offset * offset) / 1.6);
+  const shift = clamp(offset * 30 * vw + bump, -w * 0.5, w * 0.5);
+  const raise = -62 * prox + Math.abs(offset) * 8; // apex highest, outer cards droop into the arc
+  const scale = 0.84 + 0.26 * prox; // apex noticeably larger than its neighbours
   return { angle, shift, raise, scale };
 }
 
@@ -372,7 +374,7 @@ function applyFanLayout(centerFloat, liftSelected) {
 function attachFanGestures(cards, isPreview) {
   const fan = document.getElementById('fan');
   if (!fan) return;
-  const SPACING = 50; // px of horizontal drag to advance one card
+  const SPACING = Math.max(46, (window.innerWidth || 390) * 0.16); // drag distance to advance one card
   let startX = 0;
   let startY = 0;
   let dragging = false;
