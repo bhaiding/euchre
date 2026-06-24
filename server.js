@@ -1,0 +1,594 @@
+const express = require('express');
+const http = require('http');
+const path = require('path');
+const QRCode = require('qrcode');
+const { customAlphabet } = require('nanoid');
+const { Server } = require('socket.io');
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: '*' } });
+const nanoid = customAlphabet('23456789ABCDEFGHJKLMNPQRSTUVWXYZ', 6);
+const PORT = process.env.PORT || 3000;
+
+app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/qr', async (req, res) => {
+  try {
+    const url = String(req.query.url || '');
+    if (!/^https?:\/\//.test(url)) return res.status(400).send('Missing absolute URL');
+    const svg = await QRCode.toString(url, {
+      type: 'svg',
+      margin: 1,
+      errorCorrectionLevel: 'M',
+      color: { dark: '#111111', light: '#ffffff' }
+    });
+    res.setHeader('content-type', 'image/svg+xml');
+    res.send(svg);
+  } catch (err) {
+    res.status(500).send('QR generation failed');
+  }
+});
+
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+const games = new Map();
+const seats = [0, 1, 2, 3];
+const suitNames = { S: 'Spades', H: 'Hearts', D: 'Diamonds', C: 'Clubs' };
+const suitSymbols = { S: '♠', H: '♥', D: '♦', C: '♣' };
+const seatLabels = ['South', 'West', 'North', 'East'];
+const ranks = ['9', '10', 'J', 'Q', 'K', 'A'];
+const suits = ['S', 'H', 'D', 'C'];
+const teamOfSeat = seat => seat === 0 || seat === 2 ? 'blue' : 'red';
+const partnerOf = seat => (seat + 2) % 4;
+const leftOf = seat => (seat + 1) % 4;
+const sameColorSuit = suit => ({ S: 'C', C: 'S', H: 'D', D: 'H' }[suit]);
+
+function cardLabel(card) {
+  return `${card.rank}${suitSymbols[card.suit]}`;
+}
+
+function newDeck() {
+  const deck = [];
+  for (const suit of suits) {
+    for (const rank of ranks) {
+      deck.push({ id: `${rank}${suit}`, rank, suit, label: `${rank}${suitSymbols[suit]}` });
+    }
+  }
+  return shuffle(deck);
+}
+
+function shuffle(arr) {
+  const copy = arr.slice();
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function getGame(room) {
+  if (!games.has(room)) games.set(room, createGame(room));
+  return games.get(room);
+}
+
+function createGame(room) {
+  return {
+    room,
+    createdAt: Date.now(),
+    seatSockets: [new Set(), new Set(), new Set(), new Set()],
+    tableSockets: new Set(),
+    dealer: 0,
+    phase: 'lobby',
+    handNumber: 0,
+    score: { blue: 0, red: 0 },
+    hands: [[], [], [], []],
+    kitty: [],
+    upCard: null,
+    buriedCard: null,
+    trump: null,
+    maker: null,
+    alone: false,
+    sitOut: null,
+    turn: null,
+    round: 0,
+    passes: 0,
+    leader: null,
+    trickCards: [],
+    trickPiles: [0, 0, 0, 0],
+    tricksWon: { blue: 0, red: 0 },
+    trickNumber: 0,
+    message: 'Scan a seat QR code to join. Press Start Hand when everyone is ready.',
+    dealing: false,
+    dealSeq: 0,
+    lastTrickWinner: null
+  };
+}
+
+function connectionSnapshot(game) {
+  return seats.map(seat => ({
+    seat,
+    label: seatLabels[seat],
+    team: teamOfSeat(seat),
+    connected: game.seatSockets[seat].size > 0,
+    dealer: game.dealer === seat,
+    sitOut: game.sitOut === seat
+  }));
+}
+
+function publicState(game) {
+  return {
+    room: game.room,
+    seats: connectionSnapshot(game),
+    phase: game.phase,
+    dealer: game.dealer,
+    turn: game.turn,
+    round: game.round,
+    score: game.score,
+    upCard: game.upCard,
+    trump: game.trump,
+    trumpName: game.trump ? suitNames[game.trump] : null,
+    maker: game.maker,
+    alone: game.alone,
+    sitOut: game.sitOut,
+    leader: game.leader,
+    trickCards: game.trickCards,
+    trickPiles: game.trickPiles,
+    tricksWon: game.tricksWon,
+    trickNumber: game.trickNumber,
+    message: game.message,
+    dealing: game.dealing,
+    handNumber: game.handNumber,
+    lastTrickWinner: game.lastTrickWinner
+  };
+}
+
+function privateState(game, seat) {
+  const actions = getActions(game, seat);
+  return {
+    room: game.room,
+    seat,
+    label: seatLabels[seat],
+    team: teamOfSeat(seat),
+    hand: sortedHand(game.hands[seat], game.trump),
+    phase: game.phase,
+    dealer: game.dealer,
+    turn: game.turn,
+    round: game.round,
+    upCard: game.upCard,
+    trump: game.trump,
+    trumpName: game.trump ? suitNames[game.trump] : null,
+    maker: game.maker,
+    alone: game.alone,
+    sitOut: game.sitOut,
+    canAct: actions.canAct,
+    actionType: actions.type,
+    actionText: actions.text,
+    suitOptions: actions.suitOptions || [],
+    legalCardIds: getLegalCardIds(game, seat),
+    message: game.message,
+    score: game.score
+  };
+}
+
+function emitState(game) {
+  io.to(game.room).emit('tableState', publicState(game));
+  for (const seat of seats) {
+    io.to(`${game.room}:seat:${seat}`).emit('handState', privateState(game, seat));
+  }
+}
+
+function announceError(socket, message) {
+  socket.emit('toast', { message });
+}
+
+function sortedHand(hand, trump) {
+  const suitOrder = { S: 0, H: 1, D: 2, C: 3 };
+  return hand.slice().sort((a, b) => {
+    if (trump) {
+      const ea = effectiveSuit(a, trump);
+      const eb = effectiveSuit(b, trump);
+      if (ea === trump && eb !== trump) return -1;
+      if (eb === trump && ea !== trump) return 1;
+      if (ea !== eb) return suitOrder[ea] - suitOrder[eb];
+      return cardPower(a, ea, trump) - cardPower(b, eb, trump);
+    }
+    if (a.suit !== b.suit) return suitOrder[a.suit] - suitOrder[b.suit];
+    return ranks.indexOf(a.rank) - ranks.indexOf(b.rank);
+  });
+}
+
+function getActions(game, seat) {
+  if (game.sitOut === seat) return { canAct: false, type: 'sitOut', text: 'Your partner is going alone. You sit out this hand.' };
+  if (game.phase === 'ordering1' && game.turn === seat) {
+    const dealerText = game.dealer === seat ? 'pick it up' : `tell ${seatLabels[game.dealer]} to pick it up`;
+    return { canAct: true, type: 'ordering1', text: `${cardLabel(game.upCard)} is up. Pass, ${dealerText}, or go alone.` };
+  }
+  if (game.phase === 'ordering2' && game.turn === seat) {
+    return {
+      canAct: true,
+      type: 'ordering2',
+      text: `Choose trump or pass. ${suitNames[game.upCard.suit]} is not available.`,
+      suitOptions: suits.filter(s => s !== game.upCard.suit).map(s => ({ suit: s, name: suitNames[s], symbol: suitSymbols[s] }))
+    };
+  }
+  if (game.phase === 'discard' && game.turn === seat) {
+    return { canAct: true, type: 'discard', text: `Swipe one card up to discard. Trump is ${suitNames[game.trump]}.` };
+  }
+  if (game.phase === 'playing' && game.turn === seat) {
+    return { canAct: true, type: 'play', text: 'Your turn. Swipe a card up to play it.' };
+  }
+  if (game.phase === 'betweenHands') return { canAct: false, type: 'betweenHands', text: 'Hand complete. Watch the table for the next hand.' };
+  return { canAct: false, type: 'waiting', text: 'Waiting.' };
+}
+
+function startHand(game) {
+  clearHand(game);
+  game.phase = 'dealing';
+  game.dealing = true;
+  game.handNumber += 1;
+  const deck = newDeck();
+  const first = leftOf(game.dealer);
+  const order = [first, leftOf(first), leftOf(leftOf(first)), game.dealer];
+  const sequence = [];
+
+  for (let round = 0; round < 5; round++) {
+    for (const seat of order) {
+      const card = deck.pop();
+      game.hands[seat].push(card);
+      sequence.push({ seat, card, index: sequence.length });
+    }
+  }
+  game.kitty = deck.splice(deck.length - 4, 4);
+  game.upCard = game.kitty[0];
+  game.message = `Dealing. ${cardLabel(game.upCard)} will be turned up for trump.`;
+  game.dealSeq += 1;
+
+  emitState(game);
+  io.to(game.room).emit('dealStart', {
+    seq: game.dealSeq,
+    dealer: game.dealer,
+    order,
+    sequence,
+    upCard: game.upCard,
+    startedAt: Date.now() + 400,
+    intervalMs: 150
+  });
+
+  const delay = 400 + sequence.length * 150 + 650;
+  setTimeout(() => {
+    if (game.phase !== 'dealing') return;
+    game.phase = 'ordering1';
+    game.dealing = false;
+    game.round = 1;
+    game.turn = leftOf(game.dealer);
+    game.passes = 0;
+    game.message = `${seatLabels[game.turn]} needs to decide to pass or pick up ${cardLabel(game.upCard)}.`;
+    emitState(game);
+  }, delay);
+}
+
+function clearHand(game) {
+  game.hands = [[], [], [], []];
+  game.kitty = [];
+  game.upCard = null;
+  game.buriedCard = null;
+  game.trump = null;
+  game.maker = null;
+  game.alone = false;
+  game.sitOut = null;
+  game.turn = null;
+  game.round = 0;
+  game.passes = 0;
+  game.leader = null;
+  game.trickCards = [];
+  game.trickPiles = [0, 0, 0, 0];
+  game.tricksWon = { blue: 0, red: 0 };
+  game.trickNumber = 0;
+  game.lastTrickWinner = null;
+}
+
+function nextTurn(game, fromSeat = game.turn) {
+  let next = leftOf(fromSeat);
+  while (game.sitOut === next) next = leftOf(next);
+  return next;
+}
+
+function activePlayerCount(game) {
+  return game.sitOut == null ? 4 : 3;
+}
+
+function handleTrumpAction(socket, payload) {
+  const { room, seat, action, suit, alone } = payload || {};
+  const game = games.get(room);
+  if (!game || typeof seat !== 'number') return;
+  if (game.turn !== seat) return announceError(socket, 'Not your turn.');
+
+  if (game.phase === 'ordering1') {
+    if (action === 'pass') {
+      game.passes += 1;
+      if (game.passes >= 4) {
+        game.phase = 'ordering2';
+        game.round = 2;
+        game.turn = leftOf(game.dealer);
+        game.passes = 0;
+        game.message = `${seatLabels[game.turn]} needs to choose one of the remaining suits or pass.`;
+      } else {
+        game.turn = nextTurn(game, seat);
+        game.message = `${seatLabels[game.turn]} needs to decide to pass or pick up ${cardLabel(game.upCard)}.`;
+      }
+      return emitState(game);
+    }
+    if (action === 'orderUp') {
+      game.trump = game.upCard.suit;
+      game.maker = seat;
+      game.alone = !!alone;
+      game.sitOut = game.alone ? partnerOf(seat) : null;
+      game.phase = 'discard';
+      game.turn = game.dealer;
+      game.hands[game.dealer].push(game.upCard);
+      game.message = `${seatLabels[seat]} made ${suitNames[game.trump]} trump${game.alone ? ' and is going alone' : ''}. ${seatLabels[game.dealer]} must discard.`;
+      return emitState(game);
+    }
+  }
+
+  if (game.phase === 'ordering2') {
+    if (action === 'pass') {
+      game.passes += 1;
+      if (game.passes >= 4) {
+        const oldDealer = game.dealer;
+        game.dealer = leftOf(game.dealer);
+        game.phase = 'betweenHands';
+        game.turn = null;
+        game.message = `Everyone passed. Misdeal. Dealer moves from ${seatLabels[oldDealer]} to ${seatLabels[game.dealer]}.`;
+        emitState(game);
+        return;
+      }
+      game.turn = nextTurn(game, seat);
+      game.message = `${seatLabels[game.turn]} needs to choose one of the remaining suits or pass.`;
+      return emitState(game);
+    }
+    if (action === 'chooseSuit') {
+      if (!suits.includes(suit) || suit === game.upCard.suit) return announceError(socket, 'That suit is not available.');
+      game.trump = suit;
+      game.maker = seat;
+      game.alone = !!alone;
+      game.sitOut = game.alone ? partnerOf(seat) : null;
+      beginPlaying(game, `${seatLabels[seat]} made ${suitNames[suit]} trump${game.alone ? ' and is going alone' : ''}.`);
+      return;
+    }
+  }
+}
+
+function handleCardSwipe(socket, payload) {
+  const { room, seat, cardId } = payload || {};
+  const game = games.get(room);
+  if (!game || typeof seat !== 'number' || !cardId) return;
+  if (game.sitOut === seat) return announceError(socket, 'You are sitting out this hand.');
+  if (game.turn !== seat) return announceError(socket, 'Not your turn.');
+  const card = game.hands[seat].find(c => c.id === cardId);
+  if (!card) return announceError(socket, 'That card is not in your hand.');
+
+  if (game.phase === 'discard') {
+    removeCard(game.hands[seat], cardId);
+    game.buriedCard = card;
+    beginPlaying(game, `${seatLabels[seat]} discarded. ${seatLabels[nextTurn(game, game.dealer)]} leads the first trick.`);
+    return;
+  }
+
+  if (game.phase === 'playing') {
+    if (!isLegalPlay(game, seat, card)) {
+      return announceError(socket, `You must follow ${suitNames[effectiveSuit(game.trickCards[0].card, game.trump)]} if you can.`);
+    }
+    removeCard(game.hands[seat], cardId);
+    game.trickCards.push({ seat, card, team: teamOfSeat(seat) });
+    if (game.trickCards.length >= activePlayerCount(game)) {
+      const winner = resolveTrick(game);
+      const winningTeam = teamOfSeat(winner);
+      game.tricksWon[winningTeam] += 1;
+      game.trickPiles[winner] += 1;
+      game.lastTrickWinner = winner;
+      game.phase = 'trickComplete';
+      game.turn = null;
+      game.message = `${seatLabels[winner]} wins the trick.`;
+      emitState(game);
+      setTimeout(() => finishTrick(game, winner), 1400);
+      return;
+    }
+    game.turn = nextTurn(game, seat);
+    game.message = `${seatLabels[game.turn]} needs to play a card.`;
+    return emitState(game);
+  }
+}
+
+function beginPlaying(game, prefix) {
+  game.phase = 'playing';
+  game.round = 0;
+  game.leader = nextTurn(game, game.dealer);
+  game.turn = game.leader;
+  game.trickCards = [];
+  game.trickNumber = 0;
+  game.message = `${prefix} ${seatLabels[game.turn]} leads.`;
+  emitState(game);
+}
+
+function finishTrick(game, winner) {
+  if (game.phase !== 'trickComplete') return;
+  const completedTricks = game.trickNumber + 1;
+  if (completedTricks >= 5) {
+    scoreHand(game);
+    return;
+  }
+  game.phase = 'playing';
+  game.trickCards = [];
+  game.trickNumber = completedTricks;
+  game.leader = winner;
+  game.turn = winner;
+  game.message = `${seatLabels[winner]} leads trick ${game.trickNumber + 1}.`;
+  emitState(game);
+}
+
+function scoreHand(game) {
+  const makerTeam = teamOfSeat(game.maker);
+  const defenderTeam = makerTeam === 'blue' ? 'red' : 'blue';
+  const makerTricks = game.tricksWon[makerTeam];
+  let points = 0;
+  let scoringTeam = makerTeam;
+  let summary = '';
+  if (makerTricks >= 3) {
+    points = makerTricks === 5 ? (game.alone ? 4 : 2) : 1;
+    summary = `${makerTeam.toUpperCase()} made it with ${makerTricks} trick${makerTricks === 1 ? '' : 's'} for ${points} point${points === 1 ? '' : 's'}.`;
+  } else {
+    scoringTeam = defenderTeam;
+    points = 2;
+    summary = `${makerTeam.toUpperCase()} was euchred. ${defenderTeam.toUpperCase()} gets 2 points.`;
+  }
+  game.score[scoringTeam] += points;
+  game.phase = 'betweenHands';
+  game.turn = null;
+  game.message = `${summary} Press Next Hand on the table.`;
+  game.dealer = leftOf(game.dealer);
+  emitState(game);
+}
+
+function removeCard(hand, cardId) {
+  const idx = hand.findIndex(c => c.id === cardId);
+  if (idx >= 0) return hand.splice(idx, 1)[0];
+  return null;
+}
+
+function effectiveSuit(card, trump) {
+  if (!trump) return card.suit;
+  if (card.rank === 'J' && card.suit === sameColorSuit(trump)) return trump;
+  return card.suit;
+}
+
+function isRightBower(card, trump) {
+  return card.rank === 'J' && card.suit === trump;
+}
+
+function isLeftBower(card, trump) {
+  return card.rank === 'J' && card.suit === sameColorSuit(trump);
+}
+
+function cardPower(card, ledSuit, trump) {
+  if (trump) {
+    if (isRightBower(card, trump)) return 200;
+    if (isLeftBower(card, trump)) return 199;
+  }
+  const eff = effectiveSuit(card, trump);
+  if (eff === trump) {
+    const order = { A: 196, K: 195, Q: 194, '10': 193, '9': 192, J: 191 };
+    return order[card.rank] || 190;
+  }
+  if (eff === ledSuit) {
+    const order = { A: 100, K: 99, Q: 98, J: 97, '10': 96, '9': 95 };
+    return order[card.rank] || 0;
+  }
+  return 0;
+}
+
+function resolveTrick(game) {
+  const ledSuit = effectiveSuit(game.trickCards[0].card, game.trump);
+  let best = game.trickCards[0];
+  let bestPower = cardPower(best.card, ledSuit, game.trump);
+  for (const play of game.trickCards.slice(1)) {
+    const power = cardPower(play.card, ledSuit, game.trump);
+    if (power > bestPower) {
+      best = play;
+      bestPower = power;
+    }
+  }
+  return best.seat;
+}
+
+function isLegalPlay(game, seat, card) {
+  if (!game.trickCards.length) return true;
+  const ledSuit = effectiveSuit(game.trickCards[0].card, game.trump);
+  const hasLedSuit = game.hands[seat].some(c => effectiveSuit(c, game.trump) === ledSuit);
+  if (!hasLedSuit) return true;
+  return effectiveSuit(card, game.trump) === ledSuit;
+}
+
+function getLegalCardIds(game, seat) {
+  if (game.phase !== 'playing' || game.turn !== seat) return [];
+  return game.hands[seat].filter(card => isLegalPlay(game, seat, card)).map(card => card.id);
+}
+
+io.on('connection', socket => {
+  socket.on('createRoom', cb => {
+    const room = nanoid();
+    const game = getGame(room);
+    socket.join(room);
+    game.tableSockets.add(socket.id);
+    socket.data.room = room;
+    socket.data.role = 'table';
+    cb && cb({ room, state: publicState(game) });
+    emitState(game);
+  });
+
+  socket.on('joinTable', ({ room } = {}, cb) => {
+    if (!room) room = nanoid();
+    const game = getGame(room);
+    socket.join(room);
+    game.tableSockets.add(socket.id);
+    socket.data.room = room;
+    socket.data.role = 'table';
+    cb && cb({ room, state: publicState(game) });
+    emitState(game);
+  });
+
+  socket.on('joinSeat', ({ room, seat } = {}, cb) => {
+    if (!room || typeof seat !== 'number' || seat < 0 || seat > 3) {
+      cb && cb({ error: 'Invalid room or seat.' });
+      return;
+    }
+    const game = getGame(room);
+    socket.join(room);
+    socket.join(`${room}:seat:${seat}`);
+    game.seatSockets[seat].add(socket.id);
+    socket.data.room = room;
+    socket.data.seat = seat;
+    socket.data.role = 'hand';
+    cb && cb({ room, seat, state: privateState(game, seat) });
+    game.message = game.phase === 'lobby'
+      ? 'Players are joining. Press Start Hand when everyone is ready.'
+      : game.message;
+    emitState(game);
+  });
+
+  socket.on('startHand', ({ room } = {}) => {
+    const game = games.get(room || socket.data.room);
+    if (!game) return;
+    if (!['lobby', 'betweenHands'].includes(game.phase)) return;
+    startHand(game);
+  });
+
+  socket.on('resetGame', ({ room } = {}) => {
+    const old = games.get(room || socket.data.room);
+    if (!old) return;
+    const newGame = createGame(old.room);
+    newGame.seatSockets = old.seatSockets;
+    newGame.tableSockets = old.tableSockets;
+    games.set(old.room, newGame);
+    emitState(newGame);
+  });
+
+  socket.on('trumpAction', payload => handleTrumpAction(socket, payload));
+  socket.on('cardSwipe', payload => handleCardSwipe(socket, payload));
+
+  socket.on('disconnect', () => {
+    const { room, role, seat } = socket.data || {};
+    const game = room ? games.get(room) : null;
+    if (!game) return;
+    if (role === 'table') game.tableSockets.delete(socket.id);
+    if (role === 'hand' && typeof seat === 'number') game.seatSockets[seat].delete(socket.id);
+    emitState(game);
+  });
+});
+
+server.listen(PORT, () => {
+  console.log(`Euchre app listening on port ${PORT}`);
+});
