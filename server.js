@@ -104,7 +104,12 @@ function createGame(room) {
     message: 'Scan a seat QR code to join. Press Start Hand when everyone is ready.',
     dealing: false,
     dealSeq: 0,
-    lastTrickWinner: null
+    lastTrickWinner: null,
+    revealHands: null,
+    autoNextTimer: null,
+    playedCards: [],
+    upCardOut: false,
+    farmerUsed: [false, false, false, false]
   };
 }
 
@@ -147,7 +152,8 @@ function publicState(game) {
     message: game.message,
     dealing: game.dealing,
     handNumber: game.handNumber,
-    lastTrickWinner: game.lastTrickWinner
+    lastTrickWinner: game.lastTrickWinner,
+    revealHands: game.revealHands || null
   };
 }
 
@@ -174,6 +180,8 @@ function privateState(game, seat) {
     actionText: actions.text,
     suitOptions: actions.suitOptions || [],
     legalCardIds: getLegalCardIds(game, seat),
+    canEndEarly: canClaimRemaining(game, seat),
+    canFarmer: canFarmersHand(game, seat),
     message: game.message,
     score: game.score
   };
@@ -231,6 +239,7 @@ function getActions(game, seat) {
 }
 
 function startHand(game) {
+  clearTimeout(game.autoNextTimer);
   clearHand(game);
   game.phase = 'dealing';
   game.dealing = true;
@@ -294,6 +303,10 @@ function clearHand(game) {
   game.tricksWon = { blue: 0, red: 0 };
   game.trickNumber = 0;
   game.lastTrickWinner = null;
+  game.revealHands = null;
+  game.playedCards = [];
+  game.upCardOut = false;
+  game.farmerUsed = [false, false, false, false];
 }
 
 function nextTurn(game, fromSeat = game.turn) {
@@ -320,6 +333,7 @@ function handleTrumpAction(socket, payload) {
         game.round = 2;
         game.turn = leftOf(game.dealer);
         game.passes = 0;
+        game.upCardOut = true; // up-card is turned down and out of play for round 2
         game.message = `${nameOf(game, game.turn)} needs to choose one of the remaining suits or pass.`;
       } else {
         game.turn = nextTurn(game, seat);
@@ -350,6 +364,7 @@ function handleTrumpAction(socket, payload) {
         game.turn = null;
         game.message = `Everyone passed. Misdeal. Dealer moves from ${nameOf(game, oldDealer)} to ${nameOf(game, game.dealer)}.`;
         emitState(game);
+        scheduleAutoNext(game);
         return;
       }
       game.turn = nextTurn(game, seat);
@@ -390,6 +405,7 @@ function handleCardSwipe(socket, payload) {
     }
     removeCard(game.hands[seat], cardId);
     game.trickCards.push({ seat, card, team: teamOfSeat(seat) });
+    game.playedCards.push(card); // public record of everything played this hand
     if (game.trickCards.length >= activePlayerCount(game)) {
       const winner = resolveTrick(game);
       const winningTeam = teamOfSeat(winner);
@@ -427,24 +443,79 @@ function finishTrick(game, winner) {
     scoreHand(game);
     return;
   }
-  game.phase = 'playing';
-  game.trickCards = [];
   game.trickNumber = completedTricks;
+  game.trickCards = [];
   game.leader = winner;
   game.turn = winner;
+  // The point outcome can be locked in before all five tricks are played
+  // (a team has 3 with no march possible, or the makers are euchred). End early.
+  if (isHandDetermined(game)) return endHandEarly(game, null);
+  game.phase = 'playing';
   game.message = `${nameOf(game, winner)} leads trick ${game.trickNumber + 1}.`;
   emitState(game);
 }
 
-function scoreHand(game) {
+// True once remaining tricks can no longer change the points awarded.
+function isHandDetermined(game) {
+  if (game.maker == null) return false;
+  const makerTeam = teamOfSeat(game.maker);
+  const defTeam = makerTeam === 'blue' ? 'red' : 'blue';
+  const mk = game.tricksWon[makerTeam];
+  const df = game.tricksWon[defTeam];
+  if (df >= 3) return true;            // makers are euchred
+  if (mk >= 3 && df >= 1) return true; // makers have it, but march is off the table
+  return false;
+}
+
+// A player on lead can claim the rest when all their cards are trump and every
+// higher trump is already accounted for from PUBLIC information only: in the
+// player's own hand, already played this hand, or the turned-down up-card.
+// Cards the player can't actually see (opponents' hands, the buried kitty) are
+// assumed against them, so the button only appears when the claim is provable.
+function canClaimRemaining(game, seat) {
+  if (game.phase !== 'playing' || game.turn !== seat) return false;
+  if (game.trickCards.length !== 0) return false; // must be leading a fresh trick
+  if (game.sitOut === seat) return false;
+  if (isHandDetermined(game)) return false;
+  const mine = game.hands[seat];
+  if (mine.length < 2) return false;
+  const trump = game.trump;
+  if (!mine.every(c => effectiveSuit(c, trump) === trump)) return false;
+
+  const seen = new Set(mine.map(c => c.id));
+  for (const c of game.playedCards) seen.add(c.id);
+  if (game.upCardOut && game.upCard) seen.add(game.upCard.id);
+
+  const myMin = Math.min(...mine.map(c => cardPower(c, trump, trump)));
+  // Every trump in the deck: the six trump-suit cards plus the left bower.
+  const trumpCards = ranks.map(r => ({ id: `${r}${trump}`, rank: r, suit: trump }));
+  trumpCards.push({ id: `J${sameColorSuit(trump)}`, rank: 'J', suit: sameColorSuit(trump) });
+  for (const c of trumpCards) {
+    const power = cardPower(c, trump, trump);
+    if (power > myMin && !seen.has(c.id)) return false; // an unseen trump could still beat me
+  }
+  return true;
+}
+
+// Farmer's hand: dealt three 9s, before trump is chosen, swap them for the
+// three buried kitty cards.
+function canFarmersHand(game, seat) {
+  if (game.trump) return false;
+  if (game.phase !== 'ordering1' && game.phase !== 'ordering2') return false;
+  if (game.sitOut === seat) return false;
+  if (game.farmerUsed[seat]) return false;
+  if (game.kitty.length < 4) return false;
+  return game.hands[seat].filter(c => c.rank === '9').length >= 3;
+}
+
+function settleHand(game) {
   const makerTeam = teamOfSeat(game.maker);
   const defenderTeam = makerTeam === 'blue' ? 'red' : 'blue';
   const makerTricks = game.tricksWon[makerTeam];
-  let points = 0;
-  let scoringTeam = makerTeam;
-  let summary = '';
+  let points, scoringTeam, summary;
   if (makerTricks >= 3) {
     points = makerTricks === 5 ? (game.alone ? 4 : 2) : 1;
+    scoringTeam = makerTeam;
     summary = `${makerTeam.toUpperCase()} made it with ${makerTricks} trick${makerTricks === 1 ? '' : 's'} for ${points} point${points === 1 ? '' : 's'}.`;
   } else {
     scoringTeam = defenderTeam;
@@ -452,11 +523,48 @@ function scoreHand(game) {
     summary = `${makerTeam.toUpperCase()} was euchred. ${defenderTeam.toUpperCase()} gets 2 points.`;
   }
   game.score[scoringTeam] += points;
+  game.dealer = leftOf(game.dealer);
+  return summary;
+}
+
+// Reveal everyone's remaining cards, score, then auto-deal the next hand.
+function endHandEarly(game, claimSeat) {
+  if (claimSeat != null) {
+    const remaining = 5 - game.trickNumber;
+    if (remaining > 0) {
+      game.tricksWon[teamOfSeat(claimSeat)] += remaining;
+      game.trickPiles[claimSeat] += remaining;
+    }
+  }
+  game.revealHands = [0, 1, 2, 3].map(s => ({
+    seat: s,
+    name: nameOf(game, s),
+    team: teamOfSeat(s),
+    cards: sortedHand(game.hands[s], game.trump)
+  }));
+  const summary = settleHand(game);
+  game.phase = 'reveal';
+  game.turn = null;
+  game.trickCards = [];
+  const reason = claimSeat != null ? `${nameOf(game, claimSeat)} claimed the rest.` : 'Outcome decided early.';
+  game.message = `${reason} ${summary}`;
+  emitState(game);
+  clearTimeout(game.autoNextTimer);
+  game.autoNextTimer = setTimeout(() => { if (game.phase === 'reveal') startHand(game); }, 5000);
+}
+
+function scheduleAutoNext(game) {
+  clearTimeout(game.autoNextTimer);
+  game.autoNextTimer = setTimeout(() => { if (game.phase === 'betweenHands') startHand(game); }, 10000);
+}
+
+function scoreHand(game) {
+  const summary = settleHand(game);
   game.phase = 'betweenHands';
   game.turn = null;
-  game.message = `${summary} Press Next Hand on the table.`;
-  game.dealer = leftOf(game.dealer);
+  game.message = `${summary} Next hand starts shortly…`;
   emitState(game);
+  scheduleAutoNext(game);
 }
 
 function removeCard(hand, cardId) {
@@ -576,6 +684,7 @@ io.on('connection', socket => {
   socket.on('resetGame', ({ room } = {}) => {
     const old = games.get(room || socket.data.room);
     if (!old) return;
+    clearTimeout(old.autoNextTimer);
     const newGame = createGame(old.room);
     newGame.seatSockets = old.seatSockets;
     newGame.tableSockets = old.tableSockets;
@@ -590,6 +699,27 @@ io.on('connection', socket => {
       game.names[seat] = name.trim().slice(0, 16);
       emitState(game);
     }
+  });
+
+  socket.on('farmersHand', ({ room, seat } = {}) => {
+    const game = games.get(room || socket.data.room);
+    if (!game || typeof seat !== 'number') return;
+    if (!canFarmersHand(game, seat)) return announceError(socket, "Farmer's hand isn't available.");
+    const nines = game.hands[seat].filter(c => c.rank === '9').slice(0, 3);
+    const buried = game.kitty.slice(1, 4);
+    nines.forEach(n => removeCard(game.hands[seat], n.id));
+    game.hands[seat].push(...buried);
+    game.kitty = [game.kitty[0], ...nines];
+    game.farmerUsed[seat] = true;
+    game.message = `${nameOf(game, seat)} declared a farmer's hand and swapped three 9s.`;
+    emitState(game);
+  });
+
+  socket.on('endEarly', ({ room, seat } = {}) => {
+    const game = games.get(room || socket.data.room);
+    if (!game || typeof seat !== 'number') return;
+    if (!canClaimRemaining(game, seat)) return announceError(socket, 'You can no longer claim the rest.');
+    endHandEarly(game, seat);
   });
 
   socket.on('trumpAction', payload => handleTrumpAction(socket, payload));

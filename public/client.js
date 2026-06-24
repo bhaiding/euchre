@@ -130,8 +130,17 @@ function renderTable() {
   tablePlaySeen = new Set(state.trickCards.map(p => `${p.seat}:${p.card.id}`));
   const showQr = state.phase === 'lobby'; // only before the hand starts; free up room once playing
   const makerName = state.maker != null ? ((state.seats.find(s => s.seat === state.maker) || {}).name || seatLabels[state.maker]) : '';
-  const dealerPuck = state.dealer != null ? `<div class="dealer-puck dealer-at-${state.dealer}">D</div>` : '';
+  const dealerPuck = state.dealer != null ? `<div class="seat-puck dealer-puck dealer-at-${state.dealer}">D</div>` : '';
+  const makerPuck = state.maker != null ? `<div class="seat-puck maker-puck maker-at-${state.maker}" title="Called trump">♛</div>` : '';
   const trumpIsRed = state.trump === 'H' || state.trump === 'D';
+  const revealLayer = (state.phase === 'reveal' && Array.isArray(state.revealHands))
+    ? `<div class="reveal-banner">${escapeHtml(state.message || '')}</div>
+       <div class="reveal-layer">${state.revealHands.map(h => `
+         <div class="reveal-hand reveal-hand-${h.seat}">
+           <div class="reveal-name">${escapeHtml(h.name)}</div>
+           <div class="reveal-cards">${h.cards.map(c => cardHtml(c, 'table-card reveal-card')).join('')}</div>
+         </div>`).join('')}</div>`
+    : '';
   const wonPiles = [0, 1, 2, 3].map(seat => {
     const n = state.trickPiles?.[seat] || 0;
     if (!n) return '';
@@ -141,6 +150,9 @@ function renderTable() {
   const qrSeats = [2, 3, 0, 1].map(seat => qrForSeat(state, seat)).join('');
   const seatZones = [0, 1, 2, 3].map(seat => seatZone(state, seat)).join('');
   const controls = tableControls(state);
+  const centerAction = (state.phase === 'lobby' || state.phase === 'betweenHands')
+    ? `<button class="center-action${state.phase === 'betweenHands' ? ' counting' : ''}" data-start-hand><span>${state.phase === 'lobby' ? 'Start Hand' : 'Next Hand'}</span></button>`
+    : '';
 
   app.innerHTML = `
     <section id="table" class="table-screen phase-${state.phase} ${showQr ? '' : 'in-play'}">
@@ -152,9 +164,10 @@ function renderTable() {
       <div class="room-badge">Room ${state.room}</div>
       ${turnArrow}
       ${dealerPuck}
+      ${makerPuck}
       <div class="center-area">
         ${state.trump
-          ? `<div class="trump-emblem ${trumpIsRed ? 'red-suit' : 'black-suit'}"><span>${suitSymbols[state.trump]}</span><small>${escapeHtml(state.trumpName || '')} is trump</small></div>`
+          ? `<div class="trump-emblem ${trumpIsRed ? 'red-suit' : 'black-suit'}"><span>${suitSymbols[state.trump]}</span></div>`
           : `<div class="kitty-stack">
               <div class="card-back table-card kitty-back"></div>
               ${state.phase === 'ordering1' || state.phase === 'ordering2' ? upCardHtml : ''}
@@ -163,8 +176,10 @@ function renderTable() {
       </div>
       <div class="played-layer">${played}</div>
       <div class="won-layer">${wonPiles}</div>
+      ${revealLayer}
       ${seatZones}
       ${showQr ? `<div class="qr-layer">${qrSeats}</div>` : ''}
+      ${centerAction}
       ${controls}
       <div class="table-link">${escapeHtml(tableUrl)}</div>
       <div id="dealLayer" class="deal-layer"></div>
@@ -210,10 +225,8 @@ function seatZone(state, seat) {
 }
 
 function tableControls(state) {
-  const canStart = state.phase === 'lobby' || state.phase === 'betweenHands';
   return `
     <div class="table-controls">
-      ${canStart ? `<button data-start-hand>${state.phase === 'lobby' ? 'Start Hand' : 'Next Hand'}</button>` : ''}
       <button data-reset-game class="ghost-btn">Reset</button>
       <a class="ghost-link" href="/?${qs({ role: 'hand', preview: 1 })}" target="_blank">Phone Preview</a>
     </div>
@@ -301,6 +314,8 @@ function renderHand() {
       <div class="phone-deal-layer"></div>
       ${panel}
       ${panel ? '' : `<div class="phone-message">${escapeHtml(state.message || '')}</div>`}
+      ${state.canEndEarly ? '<button class="end-early-btn" data-end-early>End Early — claim the rest 👑</button>' : ''}
+      ${state.canFarmer ? "<button class=\"farmer-btn\" data-farmer>Farmer's Hand — swap your 9s 🌾</button>" : ''}
       <div id="fan" class="card-fan spread" style="--count:${cards.length}">
         ${cards.map((card, index) => cardInFan(card, index, cards.length, state)).join('')}
       </div>
@@ -494,6 +509,12 @@ function attachActionButtons() {
   });
   document.querySelectorAll('[data-choose-suit-alone]').forEach(btn => {
     btn.addEventListener('click', () => socket.emit('trumpAction', { room: handState.room, seat: mySeat, action: 'chooseSuit', suit: btn.dataset.chooseSuitAlone, alone: true }));
+  });
+  document.querySelectorAll('[data-end-early]').forEach(btn => {
+    btn.addEventListener('click', () => socket.emit('endEarly', { room: handState.room, seat: mySeat }));
+  });
+  document.querySelectorAll('[data-farmer]').forEach(btn => {
+    btn.addEventListener('click', () => socket.emit('farmersHand', { room: handState.room, seat: mySeat }));
   });
 }
 
