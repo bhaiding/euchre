@@ -125,7 +125,6 @@ button, a { font: inherit; }
 .fan-slot.selected { filter: drop-shadow(0 -10px 24px rgba(255,255,255,.22)); }
 .fan-slot.illegal-card { opacity: .42; filter: grayscale(.6); }
 .phone-card { width: min(88vw, calc(92vh * .714)); height: min(92vh, calc(88vw * 1.4)); border-radius: min(5.3vw, 38px); font-size: clamp(28px, 8.7vw, 58px); }
-.card-fan.spread .phone-card { width: min(42vw, calc(50vh * .7)); height: min(50vh, calc(42vw * 1.42)); border-radius: min(3.2vw, 24px); font-size: clamp(17px, 4.8vw, 34px); }
 .fan-toggle { position: absolute; top: max(10px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right)); z-index: 600; display: flex; gap: 3px; padding: 3px; border-radius: 999px; background: rgba(0,0,0,.42); border: 1px solid rgba(255,255,255,.18); backdrop-filter: blur(12px); }
 .fan-toggle button { appearance: none; border: 0; cursor: pointer; border-radius: 999px; padding: 6px 14px; font-weight: 850; font-size: 13px; color: rgba(255,255,255,.82); background: transparent; }
 .fan-toggle button.on { background: #fff; color: #07111f; box-shadow: 0 4px 12px rgba(0,0,0,.22); }

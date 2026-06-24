@@ -340,11 +340,11 @@ function fanGeometry(index, centerFloat) {
 
   // Spread mode: every card equally separated so you can see them all at once.
   if (fanLayout === 'spread') {
-    const angle = clamp(offset * 7, -34, 34);
-    const shift = offset * 17 * vw; // uniform spacing
+    const angle = clamp(offset * 8, -38, 38);
+    const shift = offset * 12 * vw; // even, tight spacing — full-size cards close together
     const arc = Math.exp(-(offset * offset) / 7); // gentle, broad arc
     const raise = -16 * arc + Math.abs(offset) * 2;
-    const scale = 0.9 + 0.07 * prox; // small lift on the focused card
+    const scale = 0.96 + 0.06 * prox; // full size, slight lift on the focused card
     return { angle, shift, raise, scale };
   }
 
