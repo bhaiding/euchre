@@ -18,6 +18,8 @@ let tableState = null;
 let handState = null;
 let selectedIndex = 0;
 let fanLayout = (() => { try { return localStorage.getItem('fanLayout') || 'fan'; } catch (e) { return 'fan'; } })();
+let myName = (() => { try { return localStorage.getItem('euchreName') || ''; } catch (e) { return ''; } })();
+let tablePlaySeen = new Set(); // played cards already on the table, so only new ones fly in
 let lastDealSeq = null;
 let previewHand = [];
 let previewTeam = 'blue';
@@ -95,7 +97,7 @@ function initHand() {
   }
   document.body.className = `phone-body ${teamOfSeat(mySeat)}-phone`;
   connectSocket();
-  socket.emit('joinSeat', { room: currentRoom, seat: mySeat }, res => {
+  socket.emit('joinSeat', { room: currentRoom, seat: mySeat, name: myName || undefined }, res => {
     if (res && res.error) return showToast(res.error);
     handState = res.state;
     renderHand();
@@ -121,9 +123,12 @@ function renderTable() {
   const tableUrl = absoluteUrl(`/?${qs({ role: 'table', room: state.room })}`);
   const turnArrow = state.turn != null ? `<div class="turn-arrow" style="--turn-angle:${seatAngle[state.turn]}deg"></div>` : '';
   const upCardHtml = state.upCard ? cardHtml(state.upCard, 'table-card up-card') : `<div class="card-back table-card up-card"></div>`;
-  const played = state.trickCards.map(play => `
-    <div class="played-card played-seat-${play.seat}">${cardHtml(play.card, 'table-card')}</div>
-  `).join('');
+  const played = state.trickCards.map(play => {
+    const key = `${play.seat}:${play.card.id}`;
+    const fresh = !tablePlaySeen.has(key); // just played this update -> fly it in from the seat
+    return `<div class="played-card played-seat-${play.seat}${fresh ? ' fly-in' : ''}">${cardHtml(play.card, 'table-card')}</div>`;
+  }).join('');
+  tablePlaySeen = new Set(state.trickCards.map(p => `${p.seat}:${p.card.id}`));
   const showQr = state.phase === 'lobby'; // only before the hand starts; free up room once playing
   const qrSeats = [2, 3, 0, 1].map(seat => qrForSeat(state, seat)).join('');
   const seatZones = [0, 1, 2, 3].map(seat => seatZone(state, seat)).join('');
@@ -137,7 +142,6 @@ function renderTable() {
         <div class="score red-score"><span>Red</span><strong>${state.score.red}</strong></div>
       </div>
       <div class="room-badge">Room ${state.room}</div>
-      <div class="state-banner">${escapeHtml(state.message || '')}</div>
       ${turnArrow}
       <div class="center-area">
         <div class="kitty-stack">
@@ -185,7 +189,7 @@ function seatZone(state, seat) {
   const sitOut = state.sitOut === seat ? '<span class="sitout-chip">sitting out</span>' : '';
   return `
     <div class="seat-zone seat-zone-${seat} ${team}-seat ${isTurn ? 'turn-seat' : ''}">
-      <div class="seat-name">${dealer}${seatLabels[seat]} ${sitOut}</div>
+      <div class="seat-name">${dealer}${escapeHtml(seatState.name || seatLabels[seat])} ${sitOut}</div>
       <div class="seat-status">${seatState.connected ? 'phone connected' : 'scan QR to join'}</div>
       <div class="trick-pile" aria-label="tricks won">
         ${Array.from({ length: Math.min(pileCount, 5) }, (_, i) => `<div class="mini-back" style="--pile-i:${i}"></div>`).join('')}
@@ -247,16 +251,45 @@ function animatePhoneDeal(deal) {
   });
 }
 
+function renderNamePrompt() {
+  document.body.className = `phone-body ${teamOfSeat(mySeat)}-phone`;
+  app.innerHTML = `
+    <section class="phone-screen name-prompt">
+      <div class="name-card">
+        <h2>What's your name?</h2>
+        <p>${seatLabels[mySeat]} seat · ${teamOfSeat(mySeat)} team</p>
+        <input id="nameInput" type="text" maxlength="16" placeholder="Your name" autocomplete="off" autocapitalize="words" />
+        <button id="nameGo">Join game</button>
+      </div>
+    </section>
+  `;
+  const input = document.getElementById('nameInput');
+  const submit = () => {
+    const v = input.value.trim();
+    if (!v) return input.focus();
+    myName = v.slice(0, 16);
+    try { localStorage.setItem('euchreName', myName); } catch (e) {}
+    socket.emit('setName', { room: currentRoom, seat: mySeat, name: myName });
+    renderHand();
+  };
+  document.getElementById('nameGo').addEventListener('click', submit);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+  setTimeout(() => input.focus(), 50);
+}
+
 function renderHand() {
   if (!handState) return;
+  if (!myName) return renderNamePrompt();
   const state = handState;
   document.body.className = `phone-body ${state.team}-phone`;
   const cards = state.phase === 'dealing' ? [] : (state.hand || []);
   selectedIndex = Math.min(Math.max(0, selectedIndex), Math.max(0, cards.length - 1));
+  const panel = actionPanel(state);
   app.innerHTML = `
     <section class="phone-screen">
       <div class="phone-deal-layer"></div>
-      ${actionPanel(state)}
+      ${panel}
+      ${panel ? '' : `<div class="phone-message">${escapeHtml(state.message || '')}</div>`}
       ${state.canAct && (state.actionType === 'ordering1' || state.actionType === 'ordering2') ? '' : fanToggle()}
       <div id="fan" class="card-fan ${fanLayout === 'spread' ? 'spread' : ''}" style="--count:${cards.length}">
         ${cards.map((card, index) => cardInFan(card, index, cards.length, state)).join('')}

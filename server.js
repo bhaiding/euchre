@@ -80,6 +80,7 @@ function createGame(room) {
     createdAt: Date.now(),
     seatSockets: [new Set(), new Set(), new Set(), new Set()],
     tableSockets: new Set(),
+    names: ['', '', '', ''],
     dealer: 0,
     phase: 'lobby',
     handNumber: 0,
@@ -107,10 +108,15 @@ function createGame(room) {
   };
 }
 
+function nameOf(game, seat) {
+  return (game.names && game.names[seat]) ? game.names[seat] : seatLabels[seat];
+}
+
 function connectionSnapshot(game) {
   return seats.map(seat => ({
     seat,
     label: seatLabels[seat],
+    name: nameOf(game, seat),
     team: teamOfSeat(seat),
     connected: game.seatSockets[seat].size > 0,
     dealer: game.dealer === seat,
@@ -203,7 +209,7 @@ function sortedHand(hand, trump) {
 function getActions(game, seat) {
   if (game.sitOut === seat) return { canAct: false, type: 'sitOut', text: 'Your partner is going alone. You sit out this hand.' };
   if (game.phase === 'ordering1' && game.turn === seat) {
-    const dealerText = game.dealer === seat ? 'pick it up' : `tell ${seatLabels[game.dealer]} to pick it up`;
+    const dealerText = game.dealer === seat ? 'pick it up' : `tell ${nameOf(game, game.dealer)} to pick it up`;
     return { canAct: true, type: 'ordering1', text: `${cardLabel(game.upCard)} is up. Pass, ${dealerText}, or go alone.` };
   }
   if (game.phase === 'ordering2' && game.turn === seat) {
@@ -265,7 +271,7 @@ function startHand(game) {
     game.round = 1;
     game.turn = leftOf(game.dealer);
     game.passes = 0;
-    game.message = `${seatLabels[game.turn]} needs to decide to pass or pick up ${cardLabel(game.upCard)}.`;
+    game.message = `${nameOf(game, game.turn)} needs to decide to pass or pick up ${cardLabel(game.upCard)}.`;
     emitState(game);
   }, delay);
 }
@@ -314,10 +320,10 @@ function handleTrumpAction(socket, payload) {
         game.round = 2;
         game.turn = leftOf(game.dealer);
         game.passes = 0;
-        game.message = `${seatLabels[game.turn]} needs to choose one of the remaining suits or pass.`;
+        game.message = `${nameOf(game, game.turn)} needs to choose one of the remaining suits or pass.`;
       } else {
         game.turn = nextTurn(game, seat);
-        game.message = `${seatLabels[game.turn]} needs to decide to pass or pick up ${cardLabel(game.upCard)}.`;
+        game.message = `${nameOf(game, game.turn)} needs to decide to pass or pick up ${cardLabel(game.upCard)}.`;
       }
       return emitState(game);
     }
@@ -329,7 +335,7 @@ function handleTrumpAction(socket, payload) {
       game.phase = 'discard';
       game.turn = game.dealer;
       game.hands[game.dealer].push(game.upCard);
-      game.message = `${seatLabels[seat]} made ${suitNames[game.trump]} trump${game.alone ? ' and is going alone' : ''}. ${seatLabels[game.dealer]} must discard.`;
+      game.message = `${nameOf(game, seat)} made ${suitNames[game.trump]} trump${game.alone ? ' and is going alone' : ''}. ${nameOf(game, game.dealer)} must discard.`;
       return emitState(game);
     }
   }
@@ -342,12 +348,12 @@ function handleTrumpAction(socket, payload) {
         game.dealer = leftOf(game.dealer);
         game.phase = 'betweenHands';
         game.turn = null;
-        game.message = `Everyone passed. Misdeal. Dealer moves from ${seatLabels[oldDealer]} to ${seatLabels[game.dealer]}.`;
+        game.message = `Everyone passed. Misdeal. Dealer moves from ${nameOf(game, oldDealer)} to ${nameOf(game, game.dealer)}.`;
         emitState(game);
         return;
       }
       game.turn = nextTurn(game, seat);
-      game.message = `${seatLabels[game.turn]} needs to choose one of the remaining suits or pass.`;
+      game.message = `${nameOf(game, game.turn)} needs to choose one of the remaining suits or pass.`;
       return emitState(game);
     }
     if (action === 'chooseSuit') {
@@ -356,7 +362,7 @@ function handleTrumpAction(socket, payload) {
       game.maker = seat;
       game.alone = !!alone;
       game.sitOut = game.alone ? partnerOf(seat) : null;
-      beginPlaying(game, `${seatLabels[seat]} made ${suitNames[suit]} trump${game.alone ? ' and is going alone' : ''}.`);
+      beginPlaying(game, `${nameOf(game, seat)} made ${suitNames[suit]} trump${game.alone ? ' and is going alone' : ''}.`);
       return;
     }
   }
@@ -374,7 +380,7 @@ function handleCardSwipe(socket, payload) {
   if (game.phase === 'discard') {
     removeCard(game.hands[seat], cardId);
     game.buriedCard = card;
-    beginPlaying(game, `${seatLabels[seat]} discarded. ${seatLabels[nextTurn(game, game.dealer)]} leads the first trick.`);
+    beginPlaying(game, `${nameOf(game, seat)} discarded. ${nameOf(game, nextTurn(game, game.dealer))} leads the first trick.`);
     return;
   }
 
@@ -392,13 +398,13 @@ function handleCardSwipe(socket, payload) {
       game.lastTrickWinner = winner;
       game.phase = 'trickComplete';
       game.turn = null;
-      game.message = `${seatLabels[winner]} wins the trick.`;
+      game.message = `${nameOf(game, winner)} wins the trick.`;
       emitState(game);
       setTimeout(() => finishTrick(game, winner), 1400);
       return;
     }
     game.turn = nextTurn(game, seat);
-    game.message = `${seatLabels[game.turn]} needs to play a card.`;
+    game.message = `${nameOf(game, game.turn)} needs to play a card.`;
     return emitState(game);
   }
 }
@@ -410,7 +416,7 @@ function beginPlaying(game, prefix) {
   game.turn = game.leader;
   game.trickCards = [];
   game.trickNumber = 0;
-  game.message = `${prefix} ${seatLabels[game.turn]} leads.`;
+  game.message = `${prefix} ${nameOf(game, game.turn)} leads.`;
   emitState(game);
 }
 
@@ -426,7 +432,7 @@ function finishTrick(game, winner) {
   game.trickNumber = completedTricks;
   game.leader = winner;
   game.turn = winner;
-  game.message = `${seatLabels[winner]} leads trick ${game.trickNumber + 1}.`;
+  game.message = `${nameOf(game, winner)} leads trick ${game.trickNumber + 1}.`;
   emitState(game);
 }
 
@@ -540,7 +546,7 @@ io.on('connection', socket => {
     emitState(game);
   });
 
-  socket.on('joinSeat', ({ room, seat } = {}, cb) => {
+  socket.on('joinSeat', ({ room, seat, name } = {}, cb) => {
     if (!room || typeof seat !== 'number' || seat < 0 || seat > 3) {
       cb && cb({ error: 'Invalid room or seat.' });
       return;
@@ -549,6 +555,7 @@ io.on('connection', socket => {
     socket.join(room);
     socket.join(`${room}:seat:${seat}`);
     game.seatSockets[seat].add(socket.id);
+    if (typeof name === 'string' && name.trim()) game.names[seat] = name.trim().slice(0, 16);
     socket.data.room = room;
     socket.data.seat = seat;
     socket.data.role = 'hand';
@@ -574,6 +581,15 @@ io.on('connection', socket => {
     newGame.tableSockets = old.tableSockets;
     games.set(old.room, newGame);
     emitState(newGame);
+  });
+
+  socket.on('setName', ({ room, seat, name } = {}) => {
+    const game = games.get(room || socket.data.room);
+    if (!game || typeof seat !== 'number' || seat < 0 || seat > 3) return;
+    if (typeof name === 'string' && name.trim()) {
+      game.names[seat] = name.trim().slice(0, 16);
+      emitState(game);
+    }
   });
 
   socket.on('trumpAction', payload => handleTrumpAction(socket, payload));
