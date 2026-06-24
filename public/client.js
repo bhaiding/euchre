@@ -356,16 +356,17 @@ function cardInFan(card, index, count, state) {
 // Live layout: positions every slot directly from a (possibly fractional) center
 // index plus an optional vertical lift on the selected card. No DOM rebuild, so
 // CSS transitions can carry the motion and it tracks the finger during a drag.
-function applyFanLayout(centerFloat, liftSelected) {
+function applyFanLayout(centerFloat, liftAmount, liftIndex) {
   const fan = document.getElementById('fan');
   if (!fan) return;
   const slots = fan.querySelectorAll('.fan-slot');
   const selInt = clamp(Math.round(centerFloat), 0, Math.max(0, slots.length - 1));
+  const liftAt = liftIndex == null ? selInt : liftIndex; // lift the card under the finger
   slots.forEach(slot => {
     const index = Number(slot.dataset.index);
     const g = fanGeometry(index, centerFloat);
     const isSel = index === selInt;
-    const raise = g.raise + (isSel ? (liftSelected || 0) : 0);
+    const raise = g.raise + (index === liftAt ? (liftAmount || 0) : 0);
     slot.style.setProperty('--angle', `${g.angle}deg`);
     slot.style.setProperty('--shift', `${g.shift}px`);
     slot.style.setProperty('--raise', `${raise}px`);
@@ -384,10 +385,12 @@ function attachFanGestures(cards, isPreview) {
   let dragging = false;
   let axis = null;
   let downSlot = null;
+  let touchedIndex = null;
 
   fan.addEventListener('pointerdown', event => {
     event.preventDefault();
     downSlot = event.target.closest('.fan-slot');
+    touchedIndex = downSlot ? Number(downSlot.dataset.index) : null;
     startX = event.clientX;
     startY = event.clientY;
     dragging = true;
@@ -408,7 +411,9 @@ function attachFanGestures(cards, isPreview) {
       const center = clamp(selectedIndex - dx / SPACING, 0, cards.length - 1);
       applyFanLayout(center, 0);
     } else {
-      applyFanLayout(selectedIndex, Math.min(0, dy)); // lift selected card with the finger
+      // lift the card actually under the finger (may not be the centred one)
+      const li = touchedIndex != null ? touchedIndex : selectedIndex;
+      applyFanLayout(selectedIndex, Math.min(0, dy), li);
     }
   });
 
@@ -420,8 +425,7 @@ function attachFanGestures(cards, isPreview) {
     const dy = event.clientY - startY;
     if (axis === 'y' && dy < -80) {
       // play the card the finger is actually on (usually the centered apex)
-      const touchedIndex = downSlot ? Number(downSlot.dataset.index) : selectedIndex;
-      const card = cards[touchedIndex];
+      const card = cards[touchedIndex != null ? touchedIndex : selectedIndex];
       if (card) return flingAndPlay(card, isPreview);
     }
     if (axis === 'x') {
