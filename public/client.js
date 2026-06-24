@@ -323,13 +323,13 @@ function actionPanel(state) {
 // index (set separately) so the fan never re-stacks while you scroll.
 function fanGeometry(index, centerFloat) {
   const offset = index - centerFloat;
-  const prox = Math.exp(-(offset * offset) / 1.3); // 1 at the apex, fades outward
+  const prox = Math.exp(-(offset * offset) / 1.1); // 1 at the apex, fades sharply outward
   const angle = clamp(offset * 8, -42, 42);
-  // push the immediate neighbours away from the apex to open a readable gap
-  const bump = Math.sign(offset) * 20 * Math.exp(-(offset * offset) / 1.6);
-  const shift = clamp(offset * 36 + bump, -190, 190);
-  const raise = -36 * prox;
-  const scale = 0.9 + 0.18 * prox;
+  // push the immediate neighbours well away from the apex to open a readable gap
+  const bump = Math.sign(offset) * 28 * Math.exp(-(offset * offset) / 1.6);
+  const shift = clamp(offset * 38 + bump, -200, 200);
+  const raise = -58 * prox; // apex lifts clearly above the right-neighbour overlap
+  const scale = 0.86 + 0.26 * prox; // apex noticeably larger than its neighbours
   return { angle, shift, raise, scale };
 }
 
@@ -413,7 +413,9 @@ function attachFanGestures(cards, isPreview) {
     const dx = event.clientX - startX;
     const dy = event.clientY - startY;
     if (axis === 'y' && dy < -80) {
-      const card = cards[selectedIndex];
+      // play the card the finger is actually on (usually the centered apex)
+      const touchedIndex = downSlot ? Number(downSlot.dataset.index) : selectedIndex;
+      const card = cards[touchedIndex];
       if (card) return flingAndPlay(card, isPreview);
     }
     if (axis === 'x') {
