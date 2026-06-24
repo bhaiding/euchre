@@ -316,19 +316,32 @@ function actionPanel(state) {
   return '';
 }
 
+// Geometry of one card in the held-hand fan. `centerFloat` is the (possibly
+// fractional) focused position. The card closest to center is the apex: lifted
+// highest, scaled up, and with extra gap to its neighbours so you can read it
+// and peek at the cards on either side. Stacking order is fixed by physical
+// index (set separately) so the fan never re-stacks while you scroll.
+function fanGeometry(index, centerFloat) {
+  const offset = index - centerFloat;
+  const prox = Math.exp(-(offset * offset) / 1.3); // 1 at the apex, fades outward
+  const angle = clamp(offset * 8, -42, 42);
+  // push the immediate neighbours away from the apex to open a readable gap
+  const bump = Math.sign(offset) * 20 * Math.exp(-(offset * offset) / 1.6);
+  const shift = clamp(offset * 36 + bump, -190, 190);
+  const raise = -36 * prox;
+  const scale = 0.9 + 0.18 * prox;
+  return { angle, shift, raise, scale };
+}
+
 function cardInFan(card, index, count, state) {
-  const offset = index - selectedIndex;
-  const angle = Math.max(-36, Math.min(36, offset * 9));
-  const shift = Math.max(-110, Math.min(110, offset * 34));
-  const raise = index === selectedIndex ? -18 : 0;
-  const scale = index === selectedIndex ? 1.04 : 0.96;
+  const g = fanGeometry(index, selectedIndex);
   const legalIds = state.legalCardIds || [];
   const isIllegal = state.canAct && state.actionType === 'play' && legalIds.length && !legalIds.includes(card.id);
   return `
     <div class="fan-slot ${index === selectedIndex ? 'selected' : ''} ${isIllegal ? 'illegal-card' : ''}"
       data-index="${index}"
       data-card-id="${card.id}"
-      style="--angle:${angle}deg; --shift:${shift}px; --raise:${raise}px; --scale:${scale}; --z:${100 + index + (index === selectedIndex ? 50 : 0)}">
+      style="--angle:${g.angle}deg; --shift:${g.shift}px; --raise:${g.raise}px; --scale:${g.scale}; --z:${10 + index}">
       ${cardHtml(card, 'phone-card')}
     </div>
   `;
@@ -344,17 +357,14 @@ function applyFanLayout(centerFloat, liftSelected) {
   const selInt = clamp(Math.round(centerFloat), 0, Math.max(0, slots.length - 1));
   slots.forEach(slot => {
     const index = Number(slot.dataset.index);
-    const offset = index - centerFloat;
-    const angle = clamp(offset * 9, -36, 36);
-    const shift = clamp(offset * 34, -150, 150);
+    const g = fanGeometry(index, centerFloat);
     const isSel = index === selInt;
-    const raise = (isSel ? -18 : 0) + (isSel ? (liftSelected || 0) : 0);
-    const scale = isSel ? 1.04 : 0.96;
-    slot.style.setProperty('--angle', `${angle}deg`);
-    slot.style.setProperty('--shift', `${shift}px`);
+    const raise = g.raise + (isSel ? (liftSelected || 0) : 0);
+    slot.style.setProperty('--angle', `${g.angle}deg`);
+    slot.style.setProperty('--shift', `${g.shift}px`);
     slot.style.setProperty('--raise', `${raise}px`);
-    slot.style.setProperty('--scale', scale);
-    slot.style.setProperty('--z', 100 + index + (isSel ? 50 : 0));
+    slot.style.setProperty('--scale', g.scale);
+    slot.style.setProperty('--z', 10 + index); // rightmost on top, leftmost on bottom — fixed
     slot.classList.toggle('selected', isSel);
   });
 }
