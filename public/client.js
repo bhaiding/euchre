@@ -261,7 +261,8 @@ function renderHand() {
       <div id="toast" class="toast"></div>
     </section>
   `;
-  attachFanHandlers(cards, false);
+  attachFanGestures(cards, false);
+  attachActionButtons();
 }
 
 function renderPreviewHand() {
@@ -276,7 +277,7 @@ function renderPreviewHand() {
       <div id="toast" class="toast"></div>
     </section>
   `;
-  attachFanHandlers(cards, true);
+  attachFanGestures(cards, true);
 }
 
 function actionPanel(state) {
@@ -333,51 +334,90 @@ function cardInFan(card, index, count, state) {
   `;
 }
 
-function attachFanHandlers(cards, isPreview) {
+// Live layout: positions every slot directly from a (possibly fractional) center
+// index plus an optional vertical lift on the selected card. No DOM rebuild, so
+// CSS transitions can carry the motion and it tracks the finger during a drag.
+function applyFanLayout(centerFloat, liftSelected) {
   const fan = document.getElementById('fan');
   if (!fan) return;
+  const slots = fan.querySelectorAll('.fan-slot');
+  const selInt = clamp(Math.round(centerFloat), 0, Math.max(0, slots.length - 1));
+  slots.forEach(slot => {
+    const index = Number(slot.dataset.index);
+    const offset = index - centerFloat;
+    const angle = clamp(offset * 9, -36, 36);
+    const shift = clamp(offset * 34, -150, 150);
+    const isSel = index === selInt;
+    const raise = (isSel ? -18 : 0) + (isSel ? (liftSelected || 0) : 0);
+    const scale = isSel ? 1.04 : 0.96;
+    slot.style.setProperty('--angle', `${angle}deg`);
+    slot.style.setProperty('--shift', `${shift}px`);
+    slot.style.setProperty('--raise', `${raise}px`);
+    slot.style.setProperty('--scale', scale);
+    slot.style.setProperty('--z', 100 + index + (isSel ? 50 : 0));
+    slot.classList.toggle('selected', isSel);
+  });
+}
+
+function attachFanGestures(cards, isPreview) {
+  const fan = document.getElementById('fan');
+  if (!fan) return;
+  const SPACING = 50; // px of horizontal drag to advance one card
   let startX = 0;
   let startY = 0;
-  let activeIndex = null;
-  let didGesture = false;
+  let dragging = false;
+  let axis = null;
+  let downSlot = null;
 
-  fan.querySelectorAll('.fan-slot').forEach(slot => {
-    slot.addEventListener('pointerdown', event => {
-      event.preventDefault();
-      slot.setPointerCapture(event.pointerId);
-      startX = event.clientX;
-      startY = event.clientY;
-      activeIndex = Number(slot.dataset.index);
-      didGesture = false;
-    });
-    slot.addEventListener('pointerup', event => {
-      const dx = event.clientX - startX;
-      const dy = event.clientY - startY;
-      const idx = activeIndex ?? Number(slot.dataset.index);
-      const card = cards[idx];
-      activeIndex = null;
-      if (!card) return;
-      if (dy < -90 && Math.abs(dy) > Math.abs(dx) * 1.1) {
-        didGesture = true;
-        playOrPreviewCard(card, isPreview);
-        return;
-      }
-      if (Math.abs(dx) > 38 && Math.abs(dx) > Math.abs(dy)) {
-        didGesture = true;
-        selectedIndex = clamp(selectedIndex + (dx < 0 ? 1 : -1), 0, cards.length - 1);
-        rerenderFanOnly(cards, isPreview);
-        return;
-      }
-      selectedIndex = idx;
-      rerenderFanOnly(cards, isPreview);
-    });
-    slot.addEventListener('click', () => {
-      if (didGesture) return;
-      selectedIndex = Number(slot.dataset.index);
-      rerenderFanOnly(cards, isPreview);
-    });
+  fan.addEventListener('pointerdown', event => {
+    event.preventDefault();
+    downSlot = event.target.closest('.fan-slot');
+    startX = event.clientX;
+    startY = event.clientY;
+    dragging = true;
+    axis = null;
+    fan.setPointerCapture(event.pointerId);
+    fan.classList.add('dragging');
   });
 
+  fan.addEventListener('pointermove', event => {
+    if (!dragging) return;
+    const dx = event.clientX - startX;
+    const dy = event.clientY - startY;
+    if (!axis) {
+      if (Math.abs(dx) > 6 || Math.abs(dy) > 6) axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+      else return;
+    }
+    if (axis === 'x') {
+      const center = clamp(selectedIndex - dx / SPACING, 0, cards.length - 1);
+      applyFanLayout(center, 0);
+    } else {
+      applyFanLayout(selectedIndex, Math.min(0, dy)); // lift selected card with the finger
+    }
+  });
+
+  const finish = event => {
+    if (!dragging) return;
+    dragging = false;
+    fan.classList.remove('dragging');
+    const dx = event.clientX - startX;
+    const dy = event.clientY - startY;
+    if (axis === 'y' && dy < -80) {
+      const card = cards[selectedIndex];
+      if (card) return flingAndPlay(card, isPreview);
+    }
+    if (axis === 'x') {
+      selectedIndex = clamp(Math.round(selectedIndex - dx / SPACING), 0, cards.length - 1);
+    } else if (axis === null && downSlot) {
+      selectedIndex = Number(downSlot.dataset.index); // tap to select
+    }
+    applyFanLayout(selectedIndex, 0); // snap to rest with transition
+  };
+  fan.addEventListener('pointerup', finish);
+  fan.addEventListener('pointercancel', finish);
+}
+
+function attachActionButtons() {
   document.querySelectorAll('[data-trump-action]').forEach(btn => {
     btn.addEventListener('click', () => {
       const kind = btn.dataset.trumpAction;
@@ -394,14 +434,32 @@ function attachFanHandlers(cards, isPreview) {
   });
 }
 
-function rerenderFanOnly(cards, isPreview) {
+// Animate the selected card up and out, then commit the play. Guards illegal
+// plays up front so a card never flies away and then snaps back.
+function flingAndPlay(card, isPreview) {
+  if (!isPreview) {
+    if (!handState?.canAct || !['play', 'discard'].includes(handState.actionType)) {
+      showToast('You can only swipe a card up on your turn.');
+      applyFanLayout(selectedIndex, 0);
+      return;
+    }
+    if (handState.actionType === 'play') {
+      const legal = handState.legalCardIds || [];
+      if (legal.length && !legal.includes(card.id)) {
+        showToast('That card is not legal to play right now.');
+        applyFanLayout(selectedIndex, 0);
+        return;
+      }
+    }
+  }
   const fan = document.getElementById('fan');
-  if (!fan) return;
-  const state = isPreview
-    ? { legalCardIds: cards.map(c => c.id), canAct: true, actionType: 'play' }
-    : handState;
-  fan.innerHTML = cards.map((card, index) => cardInFan(card, index, cards.length, state)).join('');
-  attachFanHandlers(cards, isPreview);
+  const slot = fan && fan.querySelector(`.fan-slot[data-card-id="${card.id}"]`);
+  if (slot) {
+    slot.classList.add('flinging');
+    slot.style.setProperty('--raise', '-130vh');
+    slot.style.setProperty('--scale', '1.06');
+  }
+  setTimeout(() => playOrPreviewCard(card, isPreview), 170);
 }
 
 function playOrPreviewCard(card, isPreview) {
