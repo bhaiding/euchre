@@ -150,6 +150,27 @@ function initPhonePlay() {
   });
 }
 
+function copyInviteLink() {
+  const link = absoluteUrl(`/?${qs({ role: 'phoneplay', room: currentRoom })}`);
+  const done = () => showToast('Invite link copied!');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(link).then(done).catch(() => fallbackCopy(link, done));
+  } else {
+    fallbackCopy(link, done);
+  }
+}
+
+function fallbackCopy(text, done) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); done(); } catch (e) { showToast('Could not copy — copy the URL manually.'); }
+  document.body.removeChild(ta);
+}
+
 function renderSeatPicker() {
   document.body.className = 'phone-body phoneplay blue-phone';
   const seats = tableState ? tableState.seats : [];
@@ -170,11 +191,14 @@ function renderSeatPicker() {
             </button>`;
           }).join('')}
         </div>
-        <p class="pp-hint">Others join at this same link and pick the remaining seats.</p>
+        <button class="copy-link-btn" id="ppCopy">📋 Copy invite link</button>
+        <p class="pp-hint">Share the link, then everyone picks a seat.</p>
       </div>
       <div id="toast" class="toast"></div>
     </section>
   `;
+  const copyBtn = document.getElementById('ppCopy');
+  if (copyBtn) copyBtn.addEventListener('click', copyInviteLink);
   const nameInput = document.getElementById('ppName');
   document.querySelectorAll('[data-pick-seat]').forEach(btn => {
     btn.addEventListener('click', () => {

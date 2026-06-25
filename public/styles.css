@@ -245,8 +245,15 @@ button, a { font: inherit; }
 .phoneplay-screen { position: relative; width: 100vw; height: 100vh; height: 100dvh; overflow: hidden; }
 .mini-table { position: absolute; top: 0; left: 0; right: 0; height: 41vh; z-index: 3; overflow: hidden; border-bottom: 2px solid rgba(0,0,0,.5); box-shadow: 0 6px 18px rgba(0,0,0,.4); }
 .mini-table .table-screen { position: relative; width: 100%; height: 100%; min-height: 0; }
-.phoneplay #fan { top: 52vh; bottom: 0; left: 0; right: 0; }
-.phoneplay .phone-card { width: min(50vw, calc(40vh * .7)); height: min(40vh, calc(50vw * 1.42)); border-radius: min(4vw, 28px); font-size: clamp(18px, 5vw, 34px); }
+.phoneplay #fan { top: 50vh; bottom: 0; left: 0; right: 0; }
+.phoneplay .phone-card { width: min(58vw, calc(46vh * .7)); height: min(46vh, calc(58vw * 1.42)); border-radius: min(4.4vw, 30px); font-size: clamp(20px, 5.6vw, 38px); }
+
+/* Compact scoreboard + room badge inside the small mini board */
+.table-screen.mini .scorecard { top: 1.6vmin; left: 2vmin; gap: 1vmin; }
+.table-screen.mini .score { width: auto; min-width: 0; min-height: 0; padding: .5vmin 1.4vmin; border-radius: 1.4vmin; border-width: 1px; gap: 1vmin; }
+.table-screen.mini .score span { font-size: 1.5vmin; letter-spacing: .04em; }
+.table-screen.mini .score strong { font-size: 3.4vmin; }
+.table-screen.mini .room-badge { top: 1.6vmin; right: 2vmin; padding: .5vmin 1.2vmin; font-size: 1.6vmin; }
 /* player controls sit in the band between the mini table and the cards */
 .phoneplay .action-panel, .phoneplay .phone-message { top: 41.5vh; bottom: auto; }
 .phoneplay .end-early-btn, .phoneplay .farmer-btn { top: 46vh; bottom: auto; }
@@ -265,7 +272,9 @@ button, a { font: inherit; }
 .sp-label { font-size: 20px; font-weight: 950; }
 .sp-team { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; opacity: .85; }
 .sp-status { font-size: 13px; font-weight: 800; margin-top: 2px; }
-.pp-hint { margin: 16px 0 0 !important; font-size: 13px !important; opacity: .7; }
+.copy-link-btn { width: 100%; margin-top: 16px; padding: 13px; border-radius: 999px; border: 1px solid rgba(255,255,255,.3); background: rgba(255,255,255,.12); color: #fff; font-weight: 850; font-size: 15px; cursor: pointer; }
+.copy-link-btn:active { background: rgba(255,255,255,.22); }
+.pp-hint { margin: 12px 0 0 !important; font-size: 13px !important; opacity: .7; }
 
 @media (orientation: landscape) and (max-height: 520px) {
   .phone-card { width: min(48vw, calc(95vh * .714)); height: min(95vh, calc(48vw * 1.4)); }
