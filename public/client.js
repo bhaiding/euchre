@@ -228,7 +228,7 @@ function renderPhonePlay() {
   const panel = actionPanel(state);
   app.innerHTML = `
     <section class="phone-screen phoneplay-screen">
-      <div class="mini-table">${tableMarkup(tableState, true)}</div>
+      <div class="mini-table">${tableMarkup(tableState, true, mySeat)}</div>
       ${panel}
       ${panel ? '' : `<div class="phone-message">${escapeHtml(state.message || '')}</div>`}
       ${state.canEndEarly ? '<button class="end-early-btn" data-end-early>End Early — claim the win 👑</button>' : ''}
@@ -260,25 +260,29 @@ function attachTableHandlers(state) {
 // Builds the full table layout. `mini` trims iPad-only chrome (QR codes,
 // controls, link) so the same board can be embedded above a player's cards in
 // Phone Play mode.
-function tableMarkup(state, mini) {
+function tableMarkup(state, mini, viewSeat) {
+  // Rotate seats to visual slots so a given player sits at the bottom. Slot 0 is
+  // bottom, matching the default seat-0 position, so this is identity for the iPad.
+  const rot = viewSeat == null ? 0 : viewSeat;
+  const slot = s => (s == null ? s : (s - rot + 4) % 4);
   const tableUrl = absoluteUrl(`/?${qs({ role: 'table', room: state.room })}`);
-  const turnArrow = state.turn != null ? `<div class="turn-arrow" style="--turn-angle:${seatAngle[state.turn]}deg"></div>` : '';
+  const turnArrow = state.turn != null ? `<div class="turn-arrow" style="--turn-angle:${seatAngle[slot(state.turn)]}deg"></div>` : '';
   const upCardHtml = state.upCard ? cardHtml(state.upCard, 'table-card up-card') : `<div class="card-back table-card up-card"></div>`;
   const played = state.trickCards.map(play => {
     const key = `${play.seat}:${play.card.id}`;
     const fresh = !tablePlaySeen.has(key); // just played this update -> fly it in from the seat
-    return `<div class="played-card played-seat-${play.seat}${fresh ? ' fly-in' : ''}">${cardHtml(play.card, 'table-card')}</div>`;
+    return `<div class="played-card played-seat-${slot(play.seat)}${fresh ? ' fly-in' : ''}">${cardHtml(play.card, 'table-card')}</div>`;
   }).join('');
   tablePlaySeen = new Set(state.trickCards.map(p => `${p.seat}:${p.card.id}`));
   const showQr = state.phase === 'lobby' && !mini; // only before the hand starts; never in mini mode
   const makerName = state.maker != null ? ((state.seats.find(s => s.seat === state.maker) || {}).name || seatLabels[state.maker]) : '';
-  const dealerPuck = state.dealer != null ? `<div class="seat-puck dealer-puck dealer-at-${state.dealer}">D</div>` : '';
-  const makerPuck = state.maker != null ? `<div class="seat-puck maker-puck maker-at-${state.maker}" title="Called trump">♛</div>` : '';
+  const dealerPuck = state.dealer != null ? `<div class="seat-puck dealer-puck dealer-at-${slot(state.dealer)}">D</div>` : '';
+  const makerPuck = state.maker != null ? `<div class="seat-puck maker-puck maker-at-${slot(state.maker)}" title="Called trump">♛</div>` : '';
   const trumpIsRed = state.trump === 'H' || state.trump === 'D';
   const revealLayer = (state.phase === 'reveal' && Array.isArray(state.revealHands))
     ? `<div class="reveal-banner">${escapeHtml(state.message || '')}</div>
        <div class="reveal-layer">${state.revealHands.map(h => `
-         <div class="reveal-hand reveal-hand-${h.seat}">
+         <div class="reveal-hand reveal-hand-${slot(h.seat)}">
            <div class="reveal-name">${escapeHtml(h.name)}</div>
            <div class="reveal-cards">${h.cards.map(c => cardHtml(c, 'table-card reveal-card')).join('')}</div>
          </div>`).join('')}</div>`
@@ -287,10 +291,10 @@ function tableMarkup(state, mini) {
     const n = state.trickPiles?.[seat] || 0;
     if (!n) return '';
     const cards = Array.from({ length: Math.min(n, 5) }, (_, i) => `<div class="tp-card card-back" style="--i:${i}"></div>`).join('');
-    return `<div class="won-pile won-pile-${seat}">${cards}</div>`;
+    return `<div class="won-pile won-pile-${slot(seat)}">${cards}</div>`;
   }).join('');
   const qrSeats = [2, 3, 0, 1].map(seat => qrForSeat(state, seat)).join('');
-  const seatZones = [0, 1, 2, 3].map(seat => seatZone(state, seat)).join('');
+  const seatZones = [0, 1, 2, 3].map(seat => seatZone(state, seat, slot(seat))).join('');
   const controls = tableControls(state);
   const centerAction = (state.phase === 'lobby' || state.phase === 'betweenHands')
     ? `<button class="center-action${state.phase === 'betweenHands' ? ' counting' : ''}" data-start-hand><span>${state.phase === 'lobby' ? 'Start Hand' : 'Next Hand'}</span></button>`
@@ -344,7 +348,7 @@ function qrForSeat(state, seat) {
   `;
 }
 
-function seatZone(state, seat) {
+function seatZone(state, seat, slotPos = seat) {
   const seatState = state.seats.find(s => s.seat === seat) || {};
   const team = teamOfSeat(seat);
   const isTurn = state.turn === seat;
@@ -352,7 +356,7 @@ function seatZone(state, seat) {
   const dealer = state.dealer === seat ? '<span class="dealer-chip">D</span>' : '';
   const sitOut = state.sitOut === seat ? '<span class="sitout-chip">sitting out</span>' : '';
   return `
-    <div class="seat-zone seat-zone-${seat} ${team}-seat ${isTurn ? 'turn-seat' : ''}">
+    <div class="seat-zone seat-zone-${slotPos} ${team}-seat ${isTurn ? 'turn-seat' : ''}">
       <div class="seat-name">${dealer}${escapeHtml(seatState.name || seatLabels[seat])} ${sitOut}</div>
       <div class="seat-status">${seatState.connected ? 'phone connected' : 'scan QR to join'}</div>
       <div class="trick-pile" aria-label="tricks won">
@@ -607,6 +611,7 @@ function attachFanGestures(cards, isPreview) {
     } else {
       // lift the card actually under the finger (may not be the centred one)
       const li = touchedIndex != null ? touchedIndex : selectedIndex;
+      if (downSlot) downSlot.classList.add('lifting'); // ride above the panels while rising
       applyFanLayout(selectedIndex, Math.min(0, dy), li);
     }
   });
@@ -615,6 +620,7 @@ function attachFanGestures(cards, isPreview) {
     if (!dragging) return;
     dragging = false;
     fan.classList.remove('dragging');
+    if (downSlot) downSlot.classList.remove('lifting');
     const dx = event.clientX - startX;
     const dy = event.clientY - startY;
     if (axis === 'y' && dy < -80) {

@@ -194,10 +194,12 @@ button, a { font: inherit; }
 .blue-phone { background: radial-gradient(circle at 50% -20%, #5591ff 0%, #2362e5 38%, #0b2b84 100%); }
 .red-phone { background: radial-gradient(circle at 50% -20%, #ff7180 0%, #d52a3d 42%, #711320 100%); }
 .phone-screen { position: relative; width: 100vw; height: 100vh; min-height: 100dvh; overflow: hidden; }
-.card-fan { position: absolute; inset: 0; overflow: hidden; touch-action: none; }
+.card-fan { position: absolute; inset: 0; overflow: visible; touch-action: none; }
 .fan-slot { position: absolute; left: 50%; bottom: max(-8vh, -70px); z-index: var(--z); transform-origin: 50% 94%; transform: translateX(calc(-50% + var(--shift))) translateY(var(--raise)) rotate(var(--angle)) scale(var(--scale)); transition: transform 220ms cubic-bezier(.22,.61,.36,1), filter 180ms ease, opacity 180ms ease; will-change: transform; }
 .card-fan.dragging .fan-slot { transition: filter 180ms ease; }
 .fan-slot.flinging { transition: transform 240ms cubic-bezier(.4,.0,.2,1), opacity 240ms ease; opacity: 0; }
+/* A card being swiped up rides above the panels and the mini board */
+.fan-slot.lifting, .fan-slot.flinging { z-index: 9000; }
 .fan-slot.selected { filter: drop-shadow(0 -10px 24px rgba(255,255,255,.22)); }
 .fan-slot.illegal-card { opacity: .42; filter: grayscale(.6); }
 .phone-card { width: min(88vw, calc(92vh * .714)); height: min(92vh, calc(88vw * 1.4)); border-radius: min(5.3vw, 38px); font-size: clamp(28px, 8.7vw, 58px); }
