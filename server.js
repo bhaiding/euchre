@@ -467,34 +467,56 @@ function isHandDetermined(game) {
   return false;
 }
 
-// A player on lead can claim the rest when all their cards are trump and every
-// higher trump is already accounted for from PUBLIC information only: in the
-// player's own hand, already played this hand, or the turned-down up-card.
-// Cards the player can't actually see (opponents' hands, the buried kitty) are
-// assumed against them, so the button only appears when the claim is provable.
+// How many tricks a player on lead can PROVABLY win, using public info only:
+// the run of top trumps they hold where every higher trump is already accounted
+// for (in their hand, already played, or the turned-down up-card). Any higher
+// trump that hasn't been seen could sit with an opponent and stops the run.
+// Leading these in order, the lead returns to them each time, so each is a
+// guaranteed trick. Off-suit winners aren't counted (an opponent might trump).
+function guaranteedTricks(game, seat) {
+  const trump = game.trump;
+  if (!trump) return 0;
+  const seen = new Set(game.hands[seat].map(c => c.id));
+  for (const c of game.playedCards) seen.add(c.id);
+  if (game.upCardOut && game.upCard) seen.add(game.upCard.id);
+  const mine = new Set(game.hands[seat].map(c => c.id));
+
+  const trumpIds = ranks.map(r => `${r}${trump}`);
+  trumpIds.push(`J${sameColorSuit(trump)}`);
+  const ordered = trumpIds
+    .map(id => ({ id, power: cardPower({ rank: id.slice(0, -1), suit: id.slice(-1) }, trump, trump) }))
+    .sort((a, b) => b.power - a.power);
+
+  let count = 0;
+  for (const t of ordered) {
+    if (mine.has(t.id)) { count++; continue; } // I hold the current top trump -> sure trick
+    if (!seen.has(t.id)) break;                // unseen higher trump could be against me
+    // otherwise it's already gone; keep scanning downward
+  }
+  return Math.min(count, game.hands[seat].length);
+}
+
+// A player on lead may claim once they can guarantee enough tricks to lock the
+// hand: reach 3 for their team. They don't need every remaining trick — at 2-1
+// one guaranteed trick is enough; at 1-1, two. The exception is when the makers
+// could still march (they've lost no tricks): then only a full guaranteed sweep
+// is offered, so claiming early never forfeits the extra march point.
 function canClaimRemaining(game, seat) {
   if (game.phase !== 'playing' || game.turn !== seat) return false;
   if (game.trickCards.length !== 0) return false; // must be leading a fresh trick
   if (game.sitOut === seat) return false;
   if (isHandDetermined(game)) return false;
-  const mine = game.hands[seat];
-  if (mine.length < 2) return false;
-  const trump = game.trump;
-  if (!mine.every(c => effectiveSuit(c, trump) === trump)) return false;
-
-  const seen = new Set(mine.map(c => c.id));
-  for (const c of game.playedCards) seen.add(c.id);
-  if (game.upCardOut && game.upCard) seen.add(game.upCard.id);
-
-  const myMin = Math.min(...mine.map(c => cardPower(c, trump, trump)));
-  // Every trump in the deck: the six trump-suit cards plus the left bower.
-  const trumpCards = ranks.map(r => ({ id: `${r}${trump}`, rank: r, suit: trump }));
-  trumpCards.push({ id: `J${sameColorSuit(trump)}`, rank: 'J', suit: sameColorSuit(trump) });
-  for (const c of trumpCards) {
-    const power = cardPower(c, trump, trump);
-    if (power > myMin && !seen.has(c.id)) return false; // an unseen trump could still beat me
-  }
-  return true;
+  const myTeam = teamOfSeat(seat);
+  const oppTeam = myTeam === 'blue' ? 'red' : 'blue';
+  const T = game.tricksWon[myTeam];
+  const O = game.tricksWon[oppTeam];
+  const remaining = 5 - T - O;
+  const needed = 3 - T;
+  if (remaining <= 0 || needed <= 0) return false;
+  const guaranteed = Math.min(guaranteedTricks(game, seat), remaining);
+  if (guaranteed <= 0) return false;
+  const marchAtRisk = myTeam === teamOfSeat(game.maker) && O === 0; // makers could still sweep
+  return marchAtRisk ? guaranteed >= remaining : guaranteed >= needed;
 }
 
 // Farmer's hand: dealt three 9s, before trump is chosen, swap them for the
@@ -530,10 +552,25 @@ function settleHand(game) {
 // Reveal everyone's remaining cards, score, then auto-deal the next hand.
 function endHandEarly(game, claimSeat) {
   if (claimSeat != null) {
-    const remaining = 5 - game.trickNumber;
-    if (remaining > 0) {
-      game.tricksWon[teamOfSeat(claimSeat)] += remaining;
-      game.trickPiles[claimSeat] += remaining;
+    const myTeam = teamOfSeat(claimSeat);
+    const oppTeam = myTeam === 'blue' ? 'red' : 'blue';
+    const T = game.tricksWon[myTeam];
+    const O = game.tricksWon[oppTeam];
+    const remaining = 5 - T - O;
+    const marchAtRisk = myTeam === teamOfSeat(game.maker) && O === 0;
+    // Award the claimer the tricks they guaranteed (a full sweep when going for
+    // the march); any non-guaranteed remaining tricks go to the opponents. The
+    // point outcome is already locked, so this distribution only sets the count.
+    const take = marchAtRisk ? remaining : Math.min(guaranteedTricks(game, claimSeat), remaining);
+    const giveOpp = remaining - take;
+    if (take > 0) {
+      game.tricksWon[myTeam] += take;
+      game.trickPiles[claimSeat] += take;
+    }
+    if (giveOpp > 0) {
+      game.tricksWon[oppTeam] += giveOpp;
+      const oppSeat = [0, 1, 2, 3].find(s => teamOfSeat(s) === oppTeam && game.sitOut !== s);
+      if (oppSeat != null) game.trickPiles[oppSeat] += giveOpp;
     }
   }
   game.revealHands = [0, 1, 2, 3].map(s => ({
@@ -546,7 +583,7 @@ function endHandEarly(game, claimSeat) {
   game.phase = 'reveal';
   game.turn = null;
   game.trickCards = [];
-  const reason = claimSeat != null ? `${nameOf(game, claimSeat)} claimed the rest.` : 'Outcome decided early.';
+  const reason = claimSeat != null ? `${nameOf(game, claimSeat)} claimed the hand.` : 'Outcome decided early.';
   game.message = `${reason} ${summary}`;
   emitState(game);
   clearTimeout(game.autoNextTimer);

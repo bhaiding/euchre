@@ -314,7 +314,7 @@ function renderHand() {
       <div class="phone-deal-layer"></div>
       ${panel}
       ${panel ? '' : `<div class="phone-message">${escapeHtml(state.message || '')}</div>`}
-      ${state.canEndEarly ? '<button class="end-early-btn" data-end-early>End Early — claim the rest 👑</button>' : ''}
+      ${state.canEndEarly ? '<button class="end-early-btn" data-end-early>End Early — claim the win 👑</button>' : ''}
       ${state.canFarmer ? "<button class=\"farmer-btn\" data-farmer>Farmer's Hand — swap your 9s 🌾</button>" : ''}
       <div id="fan" class="card-fan spread" style="--count:${cards.length}">
         ${cards.map((card, index) => cardInFan(card, index, cards.length, state)).join('')}
