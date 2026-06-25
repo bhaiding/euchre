@@ -296,6 +296,12 @@ function tableMarkup(state, mini, viewSeat) {
   }).join('');
   const qrSeats = [2, 3, 0, 1].map(seat => qrForSeat(state, seat)).join('');
   const seatZones = [0, 1, 2, 3].map(seat => seatZone(state, seat, slot(seat))).join('');
+  // Phone Play: print each player's name onto the felt at their (rotated) seat.
+  const nameTags = mini ? [0, 1, 2, 3].map(seat => {
+    const s = state.seats.find(x => x.seat === seat) || {};
+    const nm = s.name || seatLabels[seat];
+    return `<div class="seat-name-tag tag-at-${slot(seat)} ${teamOfSeat(seat)}-tag ${state.turn === seat ? 'tag-turn' : ''}">${escapeHtml(nm)}</div>`;
+  }).join('') : '';
   const controls = tableControls(state);
   const centerAction = (state.phase === 'lobby' || state.phase === 'betweenHands')
     ? `<button class="center-action${state.phase === 'betweenHands' ? ' counting' : ''}" data-start-hand><span>${state.phase === 'lobby' ? 'Start Hand' : 'Next Hand'}</span></button>`
@@ -326,6 +332,7 @@ function tableMarkup(state, mini, viewSeat) {
       <div class="won-layer">${wonPiles}</div>
       ${revealLayer}
       ${seatZones}
+      ${nameTags}
       ${showQr ? `<div class="qr-layer">${qrSeats}</div>` : ''}
       ${centerAction}
       ${mini ? '' : controls}

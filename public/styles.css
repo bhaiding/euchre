@@ -247,8 +247,8 @@ button, a { font: inherit; }
 .phoneplay-screen { position: relative; width: 100vw; height: 100vh; height: 100dvh; overflow: hidden; }
 .mini-table { position: absolute; top: 0; left: 0; right: 0; height: 41vh; z-index: 3; overflow: hidden; border-bottom: 2px solid rgba(0,0,0,.5); box-shadow: 0 6px 18px rgba(0,0,0,.4); }
 .mini-table .table-screen { position: relative; width: 100%; height: 100%; min-height: 0; }
-.phoneplay #fan { top: 50vh; bottom: 0; left: 0; right: 0; }
-.phoneplay .phone-card { width: min(58vw, calc(46vh * .7)); height: min(46vh, calc(58vw * 1.42)); border-radius: min(4.4vw, 30px); font-size: clamp(20px, 5.6vw, 38px); }
+.phoneplay #fan { top: 52vh; bottom: 0; left: 0; right: 0; }
+.phoneplay .phone-card { width: min(50vw, calc(40vh * .7)); height: min(40vh, calc(50vw * 1.42)); border-radius: min(4vw, 28px); font-size: clamp(18px, 5vw, 34px); }
 
 /* Compact scoreboard + room badge inside the small mini board */
 .table-screen.mini .scorecard { top: 1.6vmin; left: 2vmin; gap: 1vmin; }
@@ -263,6 +263,16 @@ button, a { font: inherit; }
 .table-screen.mini .deal-to-2 { --tx: 0vmin; --ty: -26vmin; --rot: 184deg; }
 .table-screen.mini .deal-to-3 { --tx: 40vmin; --ty: 0vmin; --rot: -92deg; }
 .phoneplay .incoming-card .phone-card { width: min(42vw, calc(34vh * .7)); height: min(34vh, calc(42vw * 1.4)); font-size: clamp(16px, 4.4vw, 30px); }
+/* Player names printed onto the felt (Phone Play mini board only) */
+.table-screen.mini .seat-zone { display: none; }
+.seat-name-tag { position: absolute; z-index: 14; font-weight: 900; font-size: 2.9vmin; letter-spacing: .04em; color: rgba(255,255,255,.55); text-transform: uppercase; text-shadow: 0 .2vmin 0 rgba(0,0,0,.55), 0 0 1vmin rgba(0,0,0,.35); white-space: nowrap; max-width: 42vmin; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.seat-name-tag.blue-tag { color: rgba(160,195,255,.62); }
+.seat-name-tag.red-tag { color: rgba(255,175,182,.62); }
+.seat-name-tag.tag-turn { color: #fff; text-shadow: 0 0 1.6vmin rgba(255,255,255,.6); }
+.tag-at-0 { left: 50%; bottom: 1.2vmin; transform: translateX(-50%); }
+.tag-at-2 { left: 50%; top: 1.2vmin; transform: translateX(-50%); }
+.tag-at-1 { left: 1.4vmin; top: 38%; transform: translateY(-50%); }
+.tag-at-3 { right: 1.4vmin; top: 62%; transform: translateY(-50%); }
 /* player controls sit in the band between the mini table and the cards */
 .phoneplay .action-panel, .phoneplay .phone-message { top: 41.5vh; bottom: auto; }
 .phoneplay .end-early-btn, .phoneplay .farmer-btn { top: 46vh; bottom: auto; }
