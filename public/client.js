@@ -229,6 +229,7 @@ function renderPhonePlay() {
   app.innerHTML = `
     <section class="phone-screen phoneplay-screen">
       <div class="mini-table">${tableMarkup(tableState, true, mySeat)}</div>
+      <div class="phone-deal-layer"></div>
       ${panel}
       ${panel ? '' : `<div class="phone-message">${escapeHtml(state.message || '')}</div>`}
       ${state.canEndEarly ? '<button class="end-early-btn" data-end-early>End Early — claim the win 👑</button>' : ''}
@@ -329,7 +330,7 @@ function tableMarkup(state, mini, viewSeat) {
       ${centerAction}
       ${mini ? '' : controls}
       ${mini ? '' : `<div class="table-link">${escapeHtml(tableUrl)}</div>`}
-      ${mini ? '' : '<div id="dealLayer" class="deal-layer"></div>'}
+      <div id="dealLayer" class="deal-layer"></div>
     </section>
   `;
 }
@@ -378,10 +379,16 @@ function tableControls(state) {
 function handleDealStart(deal) {
   if (role === 'table') animateTableDeal(deal);
   if (role === 'hand' && deal.sequence) animatePhoneDeal(deal);
+  if (role === 'phoneplay') {
+    animateTableDeal(deal, mySeat);            // mini board, rotated to the local view
+    if (deal.sequence) animatePhoneDeal(deal); // cards drop into the hand below
+  }
 }
 
-function animateTableDeal(deal) {
+function animateTableDeal(deal, viewSeat) {
   lastDealSeq = deal.seq;
+  const rot = viewSeat == null ? 0 : viewSeat;
+  const slot = s => (s - rot + 4) % 4; // fly cards to the rotated seat positions
   setTimeout(() => {
     const layer = document.getElementById('dealLayer');
     if (!layer) return;
@@ -389,7 +396,7 @@ function animateTableDeal(deal) {
     const startDelay = Math.max(0, deal.startedAt - Date.now());
     deal.sequence.forEach((entry, i) => {
       const el = document.createElement('div');
-      el.className = `deal-card card-back deal-to-${entry.seat}`;
+      el.className = `deal-card card-back deal-to-${slot(entry.seat)}`;
       el.style.animationDelay = `${startDelay + i * deal.intervalMs}ms`;
       layer.appendChild(el);
     });

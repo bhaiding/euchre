@@ -256,6 +256,13 @@ button, a { font: inherit; }
 .table-screen.mini .score span { font-size: 1.5vmin; letter-spacing: .04em; }
 .table-screen.mini .score strong { font-size: 3.4vmin; }
 .table-screen.mini .room-badge { top: 1.6vmin; right: 2vmin; padding: .5vmin 1.2vmin; font-size: 1.6vmin; }
+/* deal animation scaled to fit the small mini board */
+.table-screen.mini .deal-card { width: 7vmin; height: 9.8vmin; margin-left: -3.5vmin; margin-top: -4.9vmin; }
+.table-screen.mini .deal-to-0 { --tx: 0vmin; --ty: 26vmin; --rot: 6deg; }
+.table-screen.mini .deal-to-1 { --tx: -40vmin; --ty: 0vmin; --rot: 92deg; }
+.table-screen.mini .deal-to-2 { --tx: 0vmin; --ty: -26vmin; --rot: 184deg; }
+.table-screen.mini .deal-to-3 { --tx: 40vmin; --ty: 0vmin; --rot: -92deg; }
+.phoneplay .incoming-card .phone-card { width: min(42vw, calc(34vh * .7)); height: min(34vh, calc(42vw * 1.4)); font-size: clamp(16px, 4.4vw, 30px); }
 /* player controls sit in the band between the mini table and the cards */
 .phoneplay .action-panel, .phoneplay .phone-message { top: 41.5vh; bottom: auto; }
 .phoneplay .end-early-btn, .phoneplay .farmer-btn { top: 46vh; bottom: auto; }
