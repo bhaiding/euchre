@@ -38,6 +38,7 @@ function absoluteUrl(pathAndQuery) {
 function init() {
   if (preview) return initPreview();
   if (role === 'table') return initTable();
+  if (role === 'phoneplay') return initPhonePlay();
   if (role === 'hand') return initHand();
   renderLanding();
 }
@@ -59,9 +60,10 @@ function renderLanding() {
         <p>Use the iPad as the table. Each phone scans a seat QR code and becomes that player’s hand.</p>
         <div class="landing-actions">
           <a class="primary-link" href="/?${qs({ role: 'table', room })}">Open table view</a>
+          <a class="primary-link" href="/?${qs({ role: 'phoneplay', room })}">Phone Play (no iPad)</a>
           <a class="secondary-link" href="/?${qs({ role: 'hand', preview: 1 })}">Open phone preview mode</a>
         </div>
-        <p class="tiny">Deploy this on Railway, open the table URL on the iPad, then scan the four seat links.</p>
+        <p class="tiny">Table view: open on the iPad and scan the four seat links. Phone Play: four phones open the same link and pick their seats — no iPad needed.</p>
       </div>
     </section>
   `;
@@ -116,9 +118,125 @@ function initPreview() {
   renderPreviewHand();
 }
 
+// Phone Play: a phone is both a table observer (for the mini board) and a seat
+// (for its own hand). No iPad required; players pick a seat from the phone.
+function initPhonePlay() {
+  document.body.className = 'phone-body phoneplay blue-phone';
+  connectSocket();
+  const requestedRoom = currentRoom || randomRoomHint();
+  socket.emit('joinTable', { room: requestedRoom }, ({ room, state }) => {
+    currentRoom = room;
+    tableState = state;
+    const url = new URL(window.location.href);
+    url.search = qs({ role: 'phoneplay', room });
+    window.history.replaceState({}, '', url);
+    if (mySeat == null) renderSeatPicker(); else renderPhonePlay();
+  });
+  socket.on('tableState', state => {
+    tableState = state;
+    if (mySeat == null) {
+      const inp = document.getElementById('ppName');
+      if (inp) myName = inp.value; // keep what they're typing across re-renders
+      renderSeatPicker();
+    } else {
+      renderPhonePlay();
+    }
+  });
+  socket.on('handState', state => {
+    if (state.seat !== mySeat) return;
+    handState = state;
+    selectedIndex = Math.min(selectedIndex, Math.max(0, state.hand.length - 1));
+    renderPhonePlay();
+  });
+}
+
+function renderSeatPicker() {
+  document.body.className = 'phone-body phoneplay blue-phone';
+  const seats = tableState ? tableState.seats : [];
+  app.innerHTML = `
+    <section class="phone-screen seat-picker">
+      <div class="seat-picker-card">
+        <h2>Phone Play</h2>
+        <p>Room ${currentRoom || '…'} — pick your seat</p>
+        <input id="ppName" type="text" maxlength="16" placeholder="Your name" autocomplete="off" autocapitalize="words" value="${escapeHtml(myName)}" />
+        <div class="seat-grid">
+          ${[2, 1, 3, 0].map(seat => {
+            const s = seats.find(x => x.seat === seat) || {};
+            const taken = !!s.connected;
+            return `<button class="seat-pick ${teamOfSeat(seat)}-pick ${taken ? 'taken' : ''}" data-pick-seat="${seat}" ${taken ? 'disabled' : ''}>
+              <span class="sp-label">${seatLabels[seat]}</span>
+              <span class="sp-team">${teamOfSeat(seat)} team</span>
+              <span class="sp-status">${taken ? escapeHtml(s.name || 'taken') : 'tap to sit'}</span>
+            </button>`;
+          }).join('')}
+        </div>
+        <p class="pp-hint">Others join at this same link and pick the remaining seats.</p>
+      </div>
+      <div id="toast" class="toast"></div>
+    </section>
+  `;
+  const nameInput = document.getElementById('ppName');
+  document.querySelectorAll('[data-pick-seat]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const seat = Number(btn.dataset.pickSeat);
+      const v = (nameInput.value || '').trim();
+      if (!v) { nameInput.focus(); return showToast('Enter your name first.'); }
+      myName = v.slice(0, 16);
+      try { localStorage.setItem('euchreName', myName); } catch (e) {}
+      socket.emit('joinSeat', { room: currentRoom, seat, name: myName }, res => {
+        if (res && res.error) return showToast(res.error);
+        mySeat = seat;
+        handState = res.state;
+        renderPhonePlay();
+      });
+    });
+  });
+}
+
+function renderPhonePlay() {
+  if (!tableState) return;
+  if (mySeat == null) return renderSeatPicker();
+  if (!handState) return;
+  const state = handState;
+  document.body.className = `phone-body phoneplay ${state.team}-phone`;
+  const cards = state.phase === 'dealing' ? [] : (state.hand || []);
+  selectedIndex = Math.min(Math.max(0, selectedIndex), Math.max(0, cards.length - 1));
+  const panel = actionPanel(state);
+  app.innerHTML = `
+    <section class="phone-screen phoneplay-screen">
+      <div class="mini-table">${tableMarkup(tableState, true)}</div>
+      ${panel}
+      ${panel ? '' : `<div class="phone-message">${escapeHtml(state.message || '')}</div>`}
+      ${state.canEndEarly ? '<button class="end-early-btn" data-end-early>End Early — claim the win 👑</button>' : ''}
+      ${state.canFarmer ? "<button class=\"farmer-btn\" data-farmer>Farmer's Hand — swap your 9s 🌾</button>" : ''}
+      <div id="fan" class="card-fan spread" style="--count:${cards.length}">
+        ${cards.map((card, index) => cardInFan(card, index, cards.length, state)).join('')}
+      </div>
+      <div id="toast" class="toast"></div>
+    </section>
+  `;
+  attachFanGestures(cards, false);
+  attachActionButtons();
+  attachTableHandlers(tableState); // the mini board's Start/Next button
+}
+
 function renderTable() {
   if (!tableState) return;
-  const state = tableState;
+  app.innerHTML = tableMarkup(tableState, false);
+  attachTableHandlers(tableState);
+}
+
+function attachTableHandlers(state) {
+  const startBtn = document.querySelector('[data-start-hand]');
+  if (startBtn) startBtn.addEventListener('click', () => socket.emit('startHand', { room: state.room }));
+  const resetBtn = document.querySelector('[data-reset-game]');
+  if (resetBtn) resetBtn.addEventListener('click', () => socket.emit('resetGame', { room: state.room }));
+}
+
+// Builds the full table layout. `mini` trims iPad-only chrome (QR codes,
+// controls, link) so the same board can be embedded above a player's cards in
+// Phone Play mode.
+function tableMarkup(state, mini) {
   const tableUrl = absoluteUrl(`/?${qs({ role: 'table', room: state.room })}`);
   const turnArrow = state.turn != null ? `<div class="turn-arrow" style="--turn-angle:${seatAngle[state.turn]}deg"></div>` : '';
   const upCardHtml = state.upCard ? cardHtml(state.upCard, 'table-card up-card') : `<div class="card-back table-card up-card"></div>`;
@@ -128,7 +246,7 @@ function renderTable() {
     return `<div class="played-card played-seat-${play.seat}${fresh ? ' fly-in' : ''}">${cardHtml(play.card, 'table-card')}</div>`;
   }).join('');
   tablePlaySeen = new Set(state.trickCards.map(p => `${p.seat}:${p.card.id}`));
-  const showQr = state.phase === 'lobby'; // only before the hand starts; free up room once playing
+  const showQr = state.phase === 'lobby' && !mini; // only before the hand starts; never in mini mode
   const makerName = state.maker != null ? ((state.seats.find(s => s.seat === state.maker) || {}).name || seatLabels[state.maker]) : '';
   const dealerPuck = state.dealer != null ? `<div class="seat-puck dealer-puck dealer-at-${state.dealer}">D</div>` : '';
   const makerPuck = state.maker != null ? `<div class="seat-puck maker-puck maker-at-${state.maker}" title="Called trump">♛</div>` : '';
@@ -154,8 +272,9 @@ function renderTable() {
     ? `<button class="center-action${state.phase === 'betweenHands' ? ' counting' : ''}" data-start-hand><span>${state.phase === 'lobby' ? 'Start Hand' : 'Next Hand'}</span></button>`
     : '';
 
-  app.innerHTML = `
-    <section id="table" class="table-screen phase-${state.phase} ${showQr ? '' : 'in-play'}">
+  const inPlay = state.phase !== 'lobby';
+  return `
+    <section class="table-screen phase-${state.phase} ${inPlay ? 'in-play' : ''} ${mini ? 'mini' : ''}">
       <div class="felt"></div>
       <div class="scorecard">
         <div class="score blue-score"><span>Blue</span><strong>${state.score.blue}</strong></div>
@@ -180,16 +299,11 @@ function renderTable() {
       ${seatZones}
       ${showQr ? `<div class="qr-layer">${qrSeats}</div>` : ''}
       ${centerAction}
-      ${controls}
-      <div class="table-link">${escapeHtml(tableUrl)}</div>
-      <div id="dealLayer" class="deal-layer"></div>
+      ${mini ? '' : controls}
+      ${mini ? '' : `<div class="table-link">${escapeHtml(tableUrl)}</div>`}
+      ${mini ? '' : '<div id="dealLayer" class="deal-layer"></div>'}
     </section>
   `;
-
-  const startBtn = document.querySelector('[data-start-hand]');
-  if (startBtn) startBtn.addEventListener('click', () => socket.emit('startHand', { room: state.room }));
-  const resetBtn = document.querySelector('[data-reset-game]');
-  if (resetBtn) resetBtn.addEventListener('click', () => socket.emit('resetGame', { room: state.room }));
 }
 
 function qrForSeat(state, seat) {

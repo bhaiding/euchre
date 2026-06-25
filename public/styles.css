@@ -241,6 +241,32 @@ button, a { font: inherit; }
 .toast { position: fixed; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); transform: translate(-50%, 20px); padding: 10px 14px; border-radius: 999px; background: rgba(0,0,0,.72); color: #fff; font-weight: 850; opacity: 0; pointer-events: none; z-index: 9999; transition: opacity 160ms ease, transform 160ms ease; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 
+/* ===== PHONE PLAY (no iPad): mini table on top, hand below ===== */
+.phoneplay-screen { position: relative; width: 100vw; height: 100vh; height: 100dvh; overflow: hidden; }
+.mini-table { position: absolute; top: 0; left: 0; right: 0; height: 41vh; z-index: 3; overflow: hidden; border-bottom: 2px solid rgba(0,0,0,.5); box-shadow: 0 6px 18px rgba(0,0,0,.4); }
+.mini-table .table-screen { position: relative; width: 100%; height: 100%; min-height: 0; }
+.phoneplay #fan { top: 52vh; bottom: 0; left: 0; right: 0; }
+.phoneplay .phone-card { width: min(50vw, calc(40vh * .7)); height: min(40vh, calc(50vw * 1.42)); border-radius: min(4vw, 28px); font-size: clamp(18px, 5vw, 34px); }
+/* player controls sit in the band between the mini table and the cards */
+.phoneplay .action-panel, .phoneplay .phone-message { top: 41.5vh; bottom: auto; }
+.phoneplay .end-early-btn, .phoneplay .farmer-btn { top: 46vh; bottom: auto; }
+
+/* Seat picker */
+.seat-picker { display: grid; place-items: center; padding: 22px; }
+.seat-picker-card { width: min(94vw, 460px); padding: 26px 22px; border-radius: 26px; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.22); box-shadow: 0 20px 60px rgba(0,0,0,.34); backdrop-filter: blur(18px); text-align: center; }
+.seat-picker-card h2 { margin: 0 0 4px; font-size: 28px; letter-spacing: -.02em; }
+.seat-picker-card p { margin: 0 0 16px; color: rgba(255,255,255,.8); font-weight: 700; }
+.seat-picker-card input { width: 100%; padding: 14px 16px; border-radius: 16px; border: 1px solid rgba(255,255,255,.35); background: rgba(255,255,255,.95); color: #07111f; font-size: 18px; font-weight: 800; text-align: center; margin-bottom: 16px; }
+.seat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.seat-pick { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 16px 10px; border-radius: 18px; border: 2px solid rgba(255,255,255,.25); color: #fff; cursor: pointer; }
+.seat-pick.blue-pick { background: rgba(35,108,255,.85); }
+.seat-pick.red-pick { background: rgba(220,48,62,.85); }
+.seat-pick.taken { opacity: .5; filter: grayscale(.3); cursor: not-allowed; }
+.sp-label { font-size: 20px; font-weight: 950; }
+.sp-team { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; opacity: .85; }
+.sp-status { font-size: 13px; font-weight: 800; margin-top: 2px; }
+.pp-hint { margin: 16px 0 0 !important; font-size: 13px !important; opacity: .7; }
+
 @media (orientation: landscape) and (max-height: 520px) {
   .phone-card { width: min(48vw, calc(95vh * .714)); height: min(95vh, calc(48vw * 1.4)); }
   .fan-slot { bottom: -16vh; }
