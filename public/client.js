@@ -45,10 +45,92 @@ function init() {
 
 function connectSocket() {
   if (socket) return socket;
-  socket = io();
+  socket = io({
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 500,
+    reconnectionDelayMax: 4000,
+    timeout: 8000
+  });
   socket.on('toast', ({ message }) => showToast(message));
   socket.on('dealStart', handleDealStart);
+  // Fires on the very first connection AND every reconnect (dropped wifi,
+  // phone screen lock killing the socket, switching networks, etc). Re-join
+  // the room/seat every time so the screen never gets stuck showing stale
+  // state after the connection comes back — no manual reload needed.
+  socket.on('connect', () => {
+    setConnected(true);
+    rejoin();
+  });
+  socket.on('disconnect', () => setConnected(false));
+  document.addEventListener('visibilitychange', handleVisibilityChange);
   return socket;
+}
+
+// Phones suspend JS/websockets when the screen locks or the tab is
+// backgrounded. socket.io's own reconnection can lag behind the OS actually
+// restoring network access, so when the page becomes visible again, nudge
+// it directly instead of waiting.
+function handleVisibilityChange() {
+  if (document.visibilityState !== 'visible' || !socket) return;
+  if (!socket.connected) {
+    socket.connect();
+  } else {
+    rejoin(); // connection technically survived — resync in case anything was missed
+  }
+}
+
+// Single source of truth for (re)joining a room/seat based on the current
+// role. Used for the initial join and every reconnect.
+function rejoin() {
+  if (!socket || !socket.connected) return;
+  if (role === 'table') {
+    const requestedRoom = currentRoom || randomRoomHint();
+    socket.emit('joinTable', { room: requestedRoom }, ({ room, state }) => {
+      currentRoom = room;
+      tableState = state;
+      const url = new URL(window.location.href);
+      url.search = qs({ role: 'table', room });
+      window.history.replaceState({}, '', url);
+      renderTable();
+    });
+  } else if (role === 'hand') {
+    if (!currentRoom || !Number.isInteger(mySeat) || mySeat < 0 || mySeat > 3) return;
+    socket.emit('joinSeat', { room: currentRoom, seat: mySeat, name: myName || undefined }, res => {
+      if (res && res.error) return showToast(res.error);
+      handState = res.state;
+      renderHand();
+    });
+  } else if (role === 'phoneplay') {
+    const requestedRoom = currentRoom || randomRoomHint();
+    socket.emit('joinTable', { room: requestedRoom }, ({ room, state }) => {
+      currentRoom = room;
+      tableState = state;
+      const url = new URL(window.location.href);
+      url.search = qs({ role: 'phoneplay', room });
+      window.history.replaceState({}, '', url);
+      if (mySeat == null) {
+        renderSeatPicker();
+      } else {
+        socket.emit('joinSeat', { room: currentRoom, seat: mySeat, name: myName || undefined }, res => {
+          if (res && res.error) return showToast(res.error);
+          handState = res.state;
+          renderPhonePlay();
+        });
+      }
+    });
+  }
+}
+
+let connBannerEl = null;
+function setConnected(connected) {
+  if (!connBannerEl) {
+    connBannerEl = document.createElement('div');
+    connBannerEl.className = 'conn-banner';
+    connBannerEl.textContent = 'Reconnecting…';
+    document.body.appendChild(connBannerEl);
+  }
+  connBannerEl.classList.toggle('show', !connected);
 }
 
 function renderLanding() {
@@ -76,15 +158,6 @@ function randomRoomHint() {
 function initTable() {
   document.body.className = 'table-body';
   connectSocket();
-  const requestedRoom = currentRoom || randomRoomHint();
-  socket.emit('joinTable', { room: requestedRoom }, ({ room, state }) => {
-    currentRoom = room;
-    tableState = state;
-    const url = new URL(window.location.href);
-    url.search = qs({ role: 'table', room });
-    window.history.replaceState({}, '', url);
-    renderTable();
-  });
   socket.on('tableState', state => {
     tableState = state;
     renderTable();
@@ -98,11 +171,6 @@ function initHand() {
   }
   document.body.className = `phone-body ${teamOfSeat(mySeat)}-phone`;
   connectSocket();
-  socket.emit('joinSeat', { room: currentRoom, seat: mySeat, name: myName || undefined }, res => {
-    if (res && res.error) return showToast(res.error);
-    handState = res.state;
-    renderHand();
-  });
   socket.on('handState', state => {
     if (state.seat !== mySeat) return;
     handState = state;
@@ -123,15 +191,6 @@ function initPreview() {
 function initPhonePlay() {
   document.body.className = 'phone-body phoneplay blue-phone';
   connectSocket();
-  const requestedRoom = currentRoom || randomRoomHint();
-  socket.emit('joinTable', { room: requestedRoom }, ({ room, state }) => {
-    currentRoom = room;
-    tableState = state;
-    const url = new URL(window.location.href);
-    url.search = qs({ role: 'phoneplay', room });
-    window.history.replaceState({}, '', url);
-    if (mySeat == null) renderSeatPicker(); else renderPhonePlay();
-  });
   socket.on('tableState', state => {
     tableState = state;
     if (mySeat == null) {

@@ -243,6 +243,10 @@ button, a { font: inherit; }
 .toast { position: fixed; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); transform: translate(-50%, 20px); padding: 10px 14px; border-radius: 999px; background: rgba(0,0,0,.72); color: #fff; font-weight: 850; opacity: 0; pointer-events: none; z-index: 9999; transition: opacity 160ms ease, transform 160ms ease; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 
+.conn-banner { position: fixed; top: max(10px, env(safe-area-inset-top)); left: 50%; transform: translate(-50%, -140%); padding: 8px 16px; border-radius: 999px; background: rgba(214,110,0,.94); color: #fff; font-weight: 800; font-size: 14px; letter-spacing: .01em; z-index: 10000; pointer-events: none; box-shadow: 0 10px 30px rgba(0,0,0,.35); transition: transform 200ms ease, opacity 200ms ease; opacity: 0; }
+.conn-banner.show { transform: translate(-50%, 0); opacity: 1; }
+.conn-banner::before { content: '\25CF '; }
+
 /* ===== PHONE PLAY (no iPad): mini table on top, hand below ===== */
 .phoneplay-screen { position: relative; width: 100vw; height: 100vh; height: 100dvh; overflow: hidden; }
 .mini-table { position: absolute; top: 0; left: 0; right: 0; height: 41vh; z-index: 3; overflow: hidden; border-bottom: 2px solid rgba(0,0,0,.5); box-shadow: 0 6px 18px rgba(0,0,0,.4); }
