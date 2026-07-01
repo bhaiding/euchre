@@ -183,11 +183,11 @@ function renderSeatPicker() {
         <div class="seat-grid">
           ${[2, 1, 3, 0].map(seat => {
             const s = seats.find(x => x.seat === seat) || {};
-            const taken = !!s.connected;
+            const taken = !!s.connected || !!s.bot;
             return `<button class="seat-pick ${teamOfSeat(seat)}-pick ${taken ? 'taken' : ''}" data-pick-seat="${seat}" ${taken ? 'disabled' : ''}>
               <span class="sp-label">${seatLabels[seat]}</span>
               <span class="sp-team">${teamOfSeat(seat)} team</span>
-              <span class="sp-status">${taken ? escapeHtml(s.name || 'taken') : 'tap to sit'}</span>
+              <span class="sp-status">${taken ? escapeHtml((s.bot ? `🤖 ${s.name}` : s.name) || 'taken') : 'tap to sit'}</span>
             </button>`;
           }).join('')}
         </div>
@@ -300,7 +300,8 @@ function tableMarkup(state, mini, viewSeat) {
   const nameTags = mini ? [0, 1, 2, 3].map(seat => {
     const s = state.seats.find(x => x.seat === seat) || {};
     const nm = s.name || seatLabels[seat];
-    return `<div class="seat-name-tag tag-at-${slot(seat)} ${teamOfSeat(seat)}-tag ${state.turn === seat ? 'tag-turn' : ''}">${escapeHtml(nm)}</div>`;
+    const botTag = s.bot ? ' 🤖' : '';
+    return `<div class="seat-name-tag tag-at-${slot(seat)} ${teamOfSeat(seat)}-tag ${state.turn === seat ? 'tag-turn' : ''}">${escapeHtml(nm)}${botTag}</div>`;
   }).join('') : '';
   const controls = tableControls(state);
   const centerAction = (state.phase === 'lobby' || state.phase === 'betweenHands')
@@ -365,8 +366,8 @@ function seatZone(state, seat, slotPos = seat) {
   const sitOut = state.sitOut === seat ? '<span class="sitout-chip">sitting out</span>' : '';
   return `
     <div class="seat-zone seat-zone-${slotPos} ${team}-seat ${isTurn ? 'turn-seat' : ''}">
-      <div class="seat-name">${dealer}${escapeHtml(seatState.name || seatLabels[seat])} ${sitOut}</div>
-      <div class="seat-status">${seatState.connected ? 'phone connected' : 'scan QR to join'}</div>
+      <div class="seat-name">${dealer}${escapeHtml(seatState.name || seatLabels[seat])}${seatState.bot ? ' 🤖' : ''} ${sitOut}</div>
+      <div class="seat-status">${seatState.connected ? 'phone connected' : (seatState.bot ? 'bot is playing' : 'scan QR to join')}</div>
       <div class="trick-pile" aria-label="tricks won">
         ${Array.from({ length: Math.min(pileCount, 5) }, (_, i) => `<div class="mini-back" style="--pile-i:${i}"></div>`).join('')}
       </div>

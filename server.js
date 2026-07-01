@@ -45,6 +45,14 @@ const teamOfSeat = seat => seat === 0 || seat === 2 ? 'blue' : 'red';
 const partnerOf = seat => (seat + 2) % 4;
 const leftOf = seat => (seat + 1) % 4;
 const sameColorSuit = suit => ({ S: 'C', C: 'S', H: 'D', D: 'H' }[suit]);
+const BOT_NAMES = ['Mike', 'Mike Jr.', 'Michael'];
+const ALL_CARDS = (() => {
+  const list = [];
+  for (const suit of suits) {
+    for (const rank of ranks) list.push({ id: `${rank}${suit}`, rank, suit, label: `${rank}${suitSymbols[suit]}` });
+  }
+  return list;
+})();
 
 function cardLabel(card) {
   return `${card.rank}${suitSymbols[card.suit]}`;
@@ -81,6 +89,9 @@ function createGame(room) {
     seatSockets: [new Set(), new Set(), new Set(), new Set()],
     tableSockets: new Set(),
     names: ['', '', '', ''],
+    isBot: [false, false, false, false],
+    knownVoid: [new Set(), new Set(), new Set(), new Set()],
+    botTimer: null,
     dealer: 0,
     phase: 'lobby',
     handNumber: 0,
@@ -124,6 +135,7 @@ function connectionSnapshot(game) {
     name: nameOf(game, seat),
     team: teamOfSeat(seat),
     connected: game.seatSockets[seat].size > 0,
+    bot: !!game.isBot[seat],
     dealer: game.dealer === seat,
     sitOut: game.sitOut === seat
   }));
@@ -192,6 +204,45 @@ function emitState(game) {
   for (const seat of seats) {
     io.to(`${game.room}:seat:${seat}`).emit('handState', privateState(game, seat));
   }
+  scheduleBotMove(game);
+}
+
+// ---- Bot turn scheduling ----
+
+function isBotTurn(game) {
+  const seat = game.turn;
+  if (seat == null || !game.isBot[seat]) return false;
+  return ['ordering1', 'ordering2', 'discard', 'playing'].includes(game.phase);
+}
+
+function scheduleBotMove(game) {
+  if (game.botTimer) {
+    clearTimeout(game.botTimer);
+    game.botTimer = null;
+  }
+  if (!isBotTurn(game)) return;
+  const seat = game.turn;
+  const phase = game.phase;
+  const handNumber = game.handNumber;
+  const delay = 650 + Math.random() * 900; // feels like a person thinking, not instant
+  game.botTimer = setTimeout(() => {
+    game.botTimer = null;
+    if (games.get(game.room) !== game) return; // game was reset/replaced
+    if (game.turn !== seat || game.phase !== phase || game.handNumber !== handNumber) return; // stale
+    if (!game.isBot[seat]) return; // a human took the seat in the meantime
+    performBotMove(game, seat);
+  }, delay);
+}
+
+function performBotMove(game, seat) {
+  if (game.phase === 'ordering1') return botOrdering1(game, seat);
+  if (game.phase === 'ordering2') return botOrdering2(game, seat);
+  if (game.phase === 'discard') return botDiscard(game, seat);
+  if (game.phase === 'playing') {
+    const card = botChooseCard(game, seat);
+    if (card) applyCardSwipe(game, seat, card.id);
+    return;
+  }
 }
 
 function announceError(socket, message) {
@@ -238,8 +289,25 @@ function getActions(game, seat) {
   return { canAct: false, type: 'waiting', text: 'Waiting.' };
 }
 
+function fillBotSeats(game) {
+  const used = new Set();
+  seats.forEach(s => { if (game.isBot[s] && game.names[s]) used.add(game.names[s]); });
+  let nameIdx = 0;
+  for (const seat of seats) {
+    if (game.isBot[seat]) continue;
+    if (game.seatSockets[seat].size > 0) continue; // a human is connected here
+    while (nameIdx < BOT_NAMES.length && used.has(BOT_NAMES[nameIdx])) nameIdx++;
+    const name = BOT_NAMES[nameIdx] || `Bot ${seat + 1}`;
+    nameIdx++;
+    used.add(name);
+    game.isBot[seat] = true;
+    game.names[seat] = name;
+  }
+}
+
 function startHand(game) {
   clearTimeout(game.autoNextTimer);
+  fillBotSeats(game);
   clearHand(game);
   game.phase = 'dealing';
   game.dealing = true;
@@ -307,6 +375,7 @@ function clearHand(game) {
   game.playedCards = [];
   game.upCardOut = false;
   game.farmerUsed = [false, false, false, false];
+  game.knownVoid = [new Set(), new Set(), new Set(), new Set()];
 }
 
 function nextTurn(game, fromSeat = game.turn) {
@@ -324,7 +393,10 @@ function handleTrumpAction(socket, payload) {
   const game = games.get(room);
   if (!game || typeof seat !== 'number') return;
   if (game.turn !== seat) return announceError(socket, 'Not your turn.');
+  applyTrumpAction(game, seat, { action, suit, alone });
+}
 
+function applyTrumpAction(game, seat, { action, suit, alone }) {
   if (game.phase === 'ordering1') {
     if (action === 'pass') {
       game.passes += 1;
@@ -372,7 +444,7 @@ function handleTrumpAction(socket, payload) {
       return emitState(game);
     }
     if (action === 'chooseSuit') {
-      if (!suits.includes(suit) || suit === game.upCard.suit) return announceError(socket, 'That suit is not available.');
+      if (!suits.includes(suit) || suit === game.upCard.suit) return; // not a legal suit; ignore
       game.trump = suit;
       game.maker = seat;
       game.alone = !!alone;
@@ -391,6 +463,15 @@ function handleCardSwipe(socket, payload) {
   if (game.turn !== seat) return announceError(socket, 'Not your turn.');
   const card = game.hands[seat].find(c => c.id === cardId);
   if (!card) return announceError(socket, 'That card is not in your hand.');
+  if (game.phase === 'playing' && !isLegalPlay(game, seat, card)) {
+    return announceError(socket, `You must follow ${suitNames[effectiveSuit(game.trickCards[0].card, game.trump)]} if you can.`);
+  }
+  applyCardSwipe(game, seat, cardId);
+}
+
+function applyCardSwipe(game, seat, cardId) {
+  const card = game.hands[seat].find(c => c.id === cardId);
+  if (!card) return;
 
   if (game.phase === 'discard') {
     removeCard(game.hands[seat], cardId);
@@ -400,8 +481,12 @@ function handleCardSwipe(socket, payload) {
   }
 
   if (game.phase === 'playing') {
-    if (!isLegalPlay(game, seat, card)) {
-      return announceError(socket, `You must follow ${suitNames[effectiveSuit(game.trickCards[0].card, game.trump)]} if you can.`);
+    if (!isLegalPlay(game, seat, card)) return; // safety net; callers should only offer legal cards
+    if (game.trickCards.length > 0) {
+      const ledSuit = effectiveSuit(game.trickCards[0].card, game.trump);
+      if (effectiveSuit(card, game.trump) !== ledSuit) {
+        game.knownVoid[seat].add(ledSuit); // proven void: server enforces follow-suit, so this is certain
+      }
     }
     removeCard(game.hands[seat], cardId);
     game.trickCards.push({ seat, card, team: teamOfSeat(seat) });
@@ -668,6 +753,296 @@ function getLegalCardIds(game, seat) {
   return game.hands[seat].filter(card => isLegalPlay(game, seat, card)).map(card => card.id);
 }
 
+// ---- Bot strategy: bidding & discard (point-count hand evaluation) ----
+// Point values follow standard euchre strategy-guide tables: bowers and trump
+// are worth the most, a lone off-suit ace is a likely trick, and empty/short
+// side suits are worth extra because they let you ruff later.
+
+function cardBidValue(card, trump) {
+  if (isRightBower(card, trump)) return 10;
+  if (isLeftBower(card, trump)) return 9;
+  const eff = effectiveSuit(card, trump);
+  if (eff === trump) {
+    return { A: 7, K: 6, Q: 5, '10': 4, '9': 3 }[card.rank] ?? 3;
+  }
+  if (card.rank === 'A') return 4;
+  if (card.rank === 'K') return 2;
+  if (card.rank === 'Q') return 1;
+  return 0;
+}
+
+function handBidScore(hand, trump) {
+  let score = 0;
+  const suitCounts = { S: 0, H: 0, D: 0, C: 0 };
+  let trumpCount = 0;
+  for (const card of hand) {
+    score += cardBidValue(card, trump);
+    const eff = effectiveSuit(card, trump);
+    suitCounts[eff] += 1;
+    if (eff === trump) trumpCount += 1;
+  }
+  if (trumpCount >= 3) score += 2;
+  if (trumpCount >= 4) score += 4;
+  for (const s of suits) {
+    if (s === trump) continue;
+    if (suitCounts[s] === 0) score += 1.5; // void: free ruffing later
+    else if (suitCounts[s] === 1) score += 0.5; // easy to void quickly
+  }
+  return score;
+}
+
+function bestDiscard(cards, trump) {
+  let best = null;
+  for (const candidate of cards) {
+    const remaining = cards.filter(c => c !== candidate);
+    const score = handBidScore(remaining, trump);
+    if (!best || score > best.score) best = { discard: candidate, score };
+  }
+  return best.discard;
+}
+
+// Non-dealer callers weigh whether ordering-up hands a free trump card to the
+// dealer's team (if the dealer is on the other side) or their own (if the
+// dealer is their partner) - that risk shifts the bar for calling trump.
+function botOrdering1(game, seat) {
+  const upSuit = game.upCard.suit;
+  const isDealer = seat === game.dealer;
+  const dealerIsPartner = teamOfSeat(seat) === teamOfSeat(game.dealer);
+  let score;
+  if (isDealer) {
+    const withUp = [...game.hands[seat], game.upCard];
+    let best = null;
+    for (const candidate of withUp) {
+      const remaining = withUp.filter(c => c !== candidate);
+      const s = handBidScore(remaining, upSuit);
+      if (best == null || s > best) best = s;
+    }
+    score = best;
+  } else {
+    score = handBidScore(game.hands[seat], upSuit);
+  }
+  const threshold = isDealer ? 13 : (dealerIsPartner ? 12 : 15);
+  const aloneThreshold = isDealer ? 19 : (dealerIsPartner ? 18 : 20);
+  if (score >= threshold) {
+    return applyTrumpAction(game, seat, { action: 'orderUp', alone: score >= aloneThreshold });
+  }
+  return applyTrumpAction(game, seat, { action: 'pass' });
+}
+
+function botOrdering2(game, seat) {
+  const options = suits.filter(s => s !== game.upCard.suit);
+  let best = null;
+  for (const suit of options) {
+    const s = handBidScore(game.hands[seat], suit);
+    if (!best || s > best.score) best = { suit, score: s };
+  }
+  const threshold = 12;
+  const aloneThreshold = 18;
+  if (best && best.score >= threshold) {
+    return applyTrumpAction(game, seat, { action: 'chooseSuit', suit: best.suit, alone: best.score >= aloneThreshold });
+  }
+  return applyTrumpAction(game, seat, { action: 'pass' });
+}
+
+function botDiscard(game, seat) {
+  const discard = bestDiscard(game.hands[seat], game.trump);
+  if (discard) applyCardSwipe(game, seat, discard.id);
+}
+
+// ---- Bot strategy: card play (determinized Monte Carlo simulation) ----
+// The bot only ever looks at its own hand, cards already played, the up-card,
+// and (if it's the dealer) its own discard - never at another seat's real
+// hand. Hidden hands are randomly reconstructed ("determinized") consistent
+// with public knowledge, including suits players have proven void by failing
+// to follow. Many random reconstructions are simulated to the end of the
+// hand using a simple heuristic policy, and the legal card with the best
+// average outcome for the bot's team is chosen - a lightweight ISMCTS bot.
+
+function mustFollowSuit(hand, trickCardsSoFar, trump) {
+  if (!trickCardsSoFar.length) return null;
+  const led = effectiveSuit(trickCardsSoFar[0].card, trump);
+  return hand.some(c => effectiveSuit(c, trump) === led) ? led : null;
+}
+
+function legalCardsFor(hand, trickCardsSoFar, trump) {
+  const led = mustFollowSuit(hand, trickCardsSoFar, trump);
+  if (!led) return hand.slice();
+  return hand.filter(c => effectiveSuit(c, trump) === led);
+}
+
+function chooseLead(hand, trump) {
+  const trumpCards = hand.filter(c => effectiveSuit(c, trump) === trump);
+  if (trumpCards.length >= 3) {
+    return trumpCards.slice().sort((a, b) => cardPower(b, trump, trump) - cardPower(a, trump, trump))[0];
+  }
+  const suitCounts = { S: 0, H: 0, D: 0, C: 0 };
+  hand.forEach(c => { suitCounts[effectiveSuit(c, trump)] += 1; });
+  const safeAces = hand.filter(c => c.rank === 'A' && effectiveSuit(c, trump) !== trump && suitCounts[effectiveSuit(c, trump)] >= 2);
+  if (safeAces.length) return safeAces[0];
+  const singleton = hand.filter(c => effectiveSuit(c, trump) !== trump && suitCounts[effectiveSuit(c, trump)] === 1 && trumpCards.length > 0);
+  if (singleton.length) return singleton[0];
+  const nonTrump = hand.filter(c => effectiveSuit(c, trump) !== trump);
+  const pool = nonTrump.length ? nonTrump : hand;
+  return pool.slice().sort((a, b) => cardPower(a, a.suit, trump) - cardPower(b, b.suit, trump))[0];
+}
+
+function chooseFollow(hand, legal, trickCardsSoFar, trump, seat) {
+  const ledSuit = effectiveSuit(trickCardsSoFar[0].card, trump);
+  let bestPlay = trickCardsSoFar[0];
+  let bestPower = cardPower(bestPlay.card, ledSuit, trump);
+  for (const p of trickCardsSoFar.slice(1)) {
+    const pw = cardPower(p.card, ledSuit, trump);
+    if (pw > bestPower) { bestPlay = p; bestPower = pw; }
+  }
+  const myTeam = teamOfSeat(seat);
+  const winningTeam = teamOfSeat(bestPlay.seat);
+  const sortedLow = legal.slice().sort((a, b) => cardPower(a, ledSuit, trump) - cardPower(b, ledSuit, trump));
+  if (winningTeam === myTeam) {
+    return sortedLow[0]; // partner (or myself) already winning - conserve strength
+  }
+  const winners = sortedLow.filter(c => cardPower(c, ledSuit, trump) > bestPower);
+  if (winners.length) return winners[0]; // cheapest card that still wins
+  return sortedLow[0]; // can't win - throw the least valuable legal card
+}
+
+function heuristicChoosePlay(hand, trickCardsSoFar, trump, seat) {
+  if (!trickCardsSoFar.length) return chooseLead(hand, trump);
+  const legal = legalCardsFor(hand, trickCardsSoFar, trump);
+  return chooseFollow(hand, legal, trickCardsSoFar, trump, seat);
+}
+
+function nextTurnGeneric(seat, sitOut) {
+  let n = leftOf(seat);
+  while (sitOut != null && n === sitOut) n = leftOf(n);
+  return n;
+}
+
+function rolloutHand(startHands, trump, sitOut, startTrickCards, startTrickNumber, startTricksWon, startTurn) {
+  const hands = startHands.map(h => h.slice());
+  let trickCards = startTrickCards.map(p => ({ seat: p.seat, card: p.card }));
+  const tricksWon = { blue: startTricksWon.blue, red: startTricksWon.red };
+  let trickNumber = startTrickNumber;
+  let turn = startTurn;
+  const activeCount = sitOut != null ? 3 : 4;
+  while (trickNumber < 5) {
+    while (trickCards.length < activeCount) {
+      const hand = hands[turn];
+      const card = heuristicChoosePlay(hand, trickCards, trump, turn);
+      if (!card) break; // safety net against a bad determinization
+      const idx = hand.findIndex(c => c.id === card.id);
+      if (idx >= 0) hand.splice(idx, 1);
+      trickCards.push({ seat: turn, card });
+      turn = nextTurnGeneric(turn, sitOut);
+    }
+    if (!trickCards.length) break;
+    const ledSuit = effectiveSuit(trickCards[0].card, trump);
+    let best = trickCards[0];
+    let bestPower = cardPower(best.card, ledSuit, trump);
+    for (const p of trickCards.slice(1)) {
+      const pw = cardPower(p.card, ledSuit, trump);
+      if (pw > bestPower) { best = p; bestPower = pw; }
+    }
+    tricksWon[teamOfSeat(best.seat)] += 1;
+    trickNumber += 1;
+    trickCards = [];
+    turn = best.seat;
+  }
+  return tricksWon;
+}
+
+// Randomly reconstruct a full, consistent deal from one seat's point of view.
+function determinizeHands(game, mySeat) {
+  const trump = game.trump;
+  const known = new Set();
+  for (const c of game.hands[mySeat]) known.add(c.id);
+  for (const c of game.playedCards) known.add(c.id);
+  if (game.buriedCard && mySeat === game.dealer) known.add(game.buriedCard.id);
+
+  let upCardOwner = null;
+  if (game.upCard && !known.has(game.upCard.id)) {
+    if (game.upCardOut) {
+      known.add(game.upCard.id); // turned down, permanently out of play
+    } else if (mySeat === game.dealer) {
+      known.add(game.upCard.id); // I'm the dealer; my real hand already accounts for it
+    } else {
+      upCardOwner = game.dealer; // presumed still live in the dealer's hand
+    }
+  }
+
+  const pool = shuffle(ALL_CARDS.filter(c => !known.has(c.id) && !(upCardOwner != null && c.id === game.upCard.id)));
+
+  const result = new Array(4).fill(null);
+  result[mySeat] = game.hands[mySeat].slice();
+  const remaining = {};
+  for (const seat of seats) {
+    if (seat === mySeat) continue;
+    if (game.sitOut === seat) { result[seat] = []; continue; }
+    result[seat] = [];
+    remaining[seat] = game.hands[seat].length;
+    if (upCardOwner === seat) {
+      result[seat].push(game.upCard);
+      remaining[seat] -= 1;
+    }
+  }
+
+  for (const card of pool) {
+    const eff = effectiveSuit(card, trump);
+    let candidates = Object.keys(remaining).map(Number).filter(s => remaining[s] > 0 && !game.knownVoid[s].has(eff));
+    if (!candidates.length) candidates = Object.keys(remaining).map(Number).filter(s => remaining[s] > 0);
+    if (!candidates.length) continue; // extra unseen card (e.g. the buried card) - simply unused
+    const pick = candidates[Math.floor(Math.random() * candidates.length)];
+    result[pick].push(card);
+    remaining[pick] -= 1;
+  }
+  return result;
+}
+
+function scoreDelta(tricksWon, myTeam, maker, alone) {
+  const makerTeam = teamOfSeat(maker);
+  const defTeam = makerTeam === 'blue' ? 'red' : 'blue';
+  const makerTricks = tricksWon[makerTeam];
+  let points, scoringTeam;
+  if (makerTricks >= 3) {
+    points = makerTricks === 5 ? (alone ? 4 : 2) : 1;
+    scoringTeam = makerTeam;
+  } else {
+    points = 2;
+    scoringTeam = defTeam;
+  }
+  return scoringTeam === myTeam ? points : -points;
+}
+
+function botChooseCard(game, seat) {
+  const hand = game.hands[seat];
+  const legalIds = getLegalCardIds(game, seat);
+  const legalCards = hand.filter(c => legalIds.includes(c.id));
+  if (legalCards.length <= 1) return legalCards[0] || hand[0] || null;
+
+  const trials = 50;
+  const myTeam = teamOfSeat(seat);
+  const totals = new Map(legalCards.map(c => [c.id, 0]));
+
+  for (let t = 0; t < trials; t++) {
+    const det = determinizeHands(game, seat);
+    for (const card of legalCards) {
+      const trickCards = game.trickCards.map(p => ({ seat: p.seat, card: p.card }));
+      trickCards.push({ seat, card });
+      const handsCopy = det.map((h, s) => (s === seat ? hand.filter(c => c.id !== card.id) : h.slice()));
+      const nextSeat = nextTurnGeneric(seat, game.sitOut);
+      const tricksWon = rolloutHand(handsCopy, game.trump, game.sitOut, trickCards, game.trickNumber, game.tricksWon, nextSeat);
+      totals.set(card.id, totals.get(card.id) + scoreDelta(tricksWon, myTeam, game.maker, game.alone));
+    }
+  }
+
+  let bestCard = legalCards[0];
+  let bestScore = -Infinity;
+  for (const card of legalCards) {
+    const avg = totals.get(card.id);
+    if (avg > bestScore) { bestScore = avg; bestCard = card; }
+  }
+  return bestCard;
+}
+
 io.on('connection', socket => {
   socket.on('createRoom', cb => {
     const room = nanoid();
@@ -700,6 +1075,7 @@ io.on('connection', socket => {
     socket.join(room);
     socket.join(`${room}:seat:${seat}`);
     game.seatSockets[seat].add(socket.id);
+    game.isBot[seat] = false; // a human is claiming this seat, bot steps aside
     if (typeof name === 'string' && name.trim()) game.names[seat] = name.trim().slice(0, 16);
     socket.data.room = room;
     socket.data.seat = seat;
@@ -722,6 +1098,7 @@ io.on('connection', socket => {
     const old = games.get(room || socket.data.room);
     if (!old) return;
     clearTimeout(old.autoNextTimer);
+    clearTimeout(old.botTimer);
     const newGame = createGame(old.room);
     newGame.seatSockets = old.seatSockets;
     newGame.tableSockets = old.tableSockets;
