@@ -821,8 +821,11 @@ function botOrdering1(game, seat) {
   } else {
     score = handBidScore(game.hands[seat], upSuit);
   }
-  const threshold = isDealer ? 13 : (dealerIsPartner ? 12 : 15);
-  const aloneThreshold = isDealer ? 19 : (dealerIsPartner ? 18 : 20);
+  // Calibrated by self-play (bots at these values beat the original guesses
+  // ~1.9x on points/hand, and land on realistic misdeal/alone rates: ~5%
+  // misdeals, ~10% alone calls). See commit message for the experiment.
+  const threshold = isDealer ? 21 : (dealerIsPartner ? 20 : 23);
+  const aloneThreshold = isDealer ? 39 : (dealerIsPartner ? 29 : 31);
   if (score >= threshold) {
     return applyTrumpAction(game, seat, { action: 'orderUp', alone: score >= aloneThreshold });
   }
@@ -836,8 +839,10 @@ function botOrdering2(game, seat) {
     const s = handBidScore(game.hands[seat], suit);
     if (!best || s > best.score) best = { suit, score: s };
   }
-  const threshold = 12;
-  const aloneThreshold = 18;
+  // Calibrated by self-play: round 2 scores (best of the 3 remaining suits)
+  // run much higher than round 1 scores, so these bars sit higher too.
+  const threshold = 25;
+  const aloneThreshold = 38;
   if (best && best.score >= threshold) {
     return applyTrumpAction(game, seat, { action: 'chooseSuit', suit: best.suit, alone: best.score >= aloneThreshold });
   }
